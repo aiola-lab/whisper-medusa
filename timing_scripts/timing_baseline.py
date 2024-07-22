@@ -23,7 +23,7 @@ def main(whisper_model, audio_file):
     # resample to 16kHz
     if sample_rate != 16000:
         resampler = torchaudio.transforms.Resample(sample_rate, 16000)
-        waveform = resampler(waveform, sample_rate)
+        waveform = resampler(waveform)
         sample_rate = 16000
 
     # Preprocess the audio to the required format
