@@ -3,10 +3,11 @@ import torch
 import time
 import torchaudio
 from argparse import ArgumentParser
+import json
+from pathlib import Path
 
 
-def main(whisper_model, audio_file):
-
+def main(whisper_model, audio_file, output_file):
     # Load processor and model
     processor = WhisperProcessor.from_pretrained("openai/whisper-tiny")
     model = WhisperForConditionalGeneration.from_pretrained(whisper_model)
@@ -51,7 +52,7 @@ def main(whisper_model, audio_file):
                 decoder_input_ids=current_input_ids,
                 do_sample=False,
                 num_beams=1,
-                max_length=current_input_ids.shape[-1] + 1
+                max_length=current_input_ids.shape[-1] + 1,
             )
 
             # Extract the new token
@@ -60,11 +61,12 @@ def main(whisper_model, audio_file):
 
             # Record the time taken to generate this token
             token_time = time.time() - start_time
-            token_times.append((new_token_id, token_time))
 
             # Break if the model generates the end-of-sequence token
             if new_token_id == processor.tokenizer.eos_token_id:
                 break
+
+            token_times.append((new_token_id, token_time))
 
     # Decode the generated tokens to text
     generated_text = processor.tokenizer.decode(output_ids, skip_special_tokens=True)
@@ -76,10 +78,29 @@ def main(whisper_model, audio_file):
         token_text = processor.tokenizer.decode([token_id])
         print(f"Token: {token_text}, Time: {timing:.4f} seconds")
 
+    print([(processor.tokenizer.decode([t]), s) for t, s in token_times])
 
-if __name__ == '__main__':
+    # save the timing info to json
+    output_dir = Path(output_file).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_file, "w") as f:
+        json.dump([(processor.tokenizer.decode([t]), s) for t, s in token_times], f)
+
+
+if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--whisper-model', type=str, required=True, help="The path or name of the whisper model")
-    parser.add_argument('--audio-file', type=str, required=True, help="The path to the audio file to generate from")
+    parser.add_argument(
+        "--whisper-model",
+        type=str,
+        required=True,
+        help="The path or name of the whisper model",
+    )
+    parser.add_argument(
+        "--audio-file",
+        type=str,
+        required=True,
+        help="The path to the audio file to generate from",
+    )
+    parser.add_argument("--output-file", type=str, default="./outputs/vanilla_timing.json")
     args = parser.parse_args()
-    main(args.whisper_model, args.audio_file)
+    main(args.whisper_model, args.audio_file, output_file=args.output_file)
