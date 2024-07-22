@@ -101,6 +101,8 @@ if __name__ == "__main__":
         required=True,
         help="The path to the audio file to generate from",
     )
-    parser.add_argument("--output-file", type=str, default="./outputs/vanilla_timing.json")
+    parser.add_argument(
+        "--output-file", type=str, default="./outputs/vanilla_timing.json"
+    )
     args = parser.parse_args()
     main(args.whisper_model, args.audio_file, output_file=args.output_file)

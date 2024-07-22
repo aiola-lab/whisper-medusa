@@ -48,7 +48,13 @@ def create_image_with_text(
     return img
 
 
-def create_gif(word_time_pairs, output_path="output.gif"):
+def create_gif(
+    word_time_pairs,
+    output_path="output.gif",
+    font_size=20,
+    line_spacing=10,
+    font_path="/System/Library/Fonts/Supplemental/Arial.ttf",
+):
     """Create a GIF from a list of (word, time) pairs."""
     frames = []
     durations = []
@@ -56,7 +62,12 @@ def create_gif(word_time_pairs, output_path="output.gif"):
 
     for word, duration in word_time_pairs:
         current_text += word
-        img = create_image_with_text(current_text.strip())  # Adjust font size and path
+        img = create_image_with_text(
+            current_text.strip(),
+            font_size=font_size,
+            line_spacing=line_spacing,
+            font_path=font_path,
+        )
         frames.append(img)
         durations.append(duration)
 
@@ -70,13 +81,38 @@ def create_gif(word_time_pairs, output_path="output.gif"):
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--input-path", type=str, help="Path to the input json file", required=True)
-    parser.add_argument("--output-path", type=str, default="outputs/generation.gif", help="Path to the output GIF file")
+    parser.add_argument(
+        "--input-path", type=str, help="Path to the input json file", required=True,
+    )
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default="outputs/generation.gif",
+        help="Path to the output GIF file",
+    )
+    parser.add_argument(
+        "--font-size", type=int, default=20, help="Font size for the text in the GIF"
+    )
+    parser.add_argument(
+        "--line-spacing", type=int, default=10, help="Spacing between lines in the GIF"
+    )
+    parser.add_argument(
+        "--font-path",
+        type=str,
+        default="/System/Library/Fonts/Supplemental/Arial.ttf",
+        help="Path to the TrueType font file",
+    )
     args = parser.parse_args()
 
     with open(args.input_path, "r") as f:
         word_time_pairs = json.load(f)
 
-    create_gif(word_time_pairs, output_path=args.output_path)
+    create_gif(
+        word_time_pairs,
+        output_path=args.output_path,
+        font_size=args.font_size,
+        line_spacing=args.line_spacing,
+        font_path=args.font_path,
+    )
