@@ -81,11 +81,6 @@ def evaluate_model(args):
                 input_features,
                 prompt_ids=prompt_ids,
                 language=args.language,
-                return_dict_in_generate=True,
-                output_attentions=True,
-                output_hidden_states=True,
-                output_scores=True,
-                output_logits=True,
                 # suppress_tokens=suppress_ids,
             )
             if isinstance(model_output, WhisperMedusaGenerationOutput):
