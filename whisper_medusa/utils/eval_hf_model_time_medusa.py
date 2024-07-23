@@ -13,7 +13,6 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from whisper_medusa.utils.metrics import compute_wer, compute_cer
 from tqdm import tqdm
 import os
-import time
 import numpy as np
 warnings.filterwarnings("ignore")
 
@@ -24,6 +23,7 @@ architecture2module = {
 
 
 def evaluate_model(args):
+
     if os.path.exists(args.whisper_model_name):
         config = json.load(open(args.whisper_model_name + "/config.json"))
         suppress_ids = config.get("suppress_ids", [-1])
@@ -37,13 +37,11 @@ def evaluate_model(args):
         processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
         model = model_module.from_pretrained(
             args.whisper_model_name,
-            # torch_dtype=torch.float16
         )
     else:
         processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
         model = WhisperForConditionalGeneration.from_pretrained(
             args.whisper_model_name,
-            # torch_dtype=torch.float16
         )  
         suppress_ids = [-1]
 
@@ -83,7 +81,12 @@ def evaluate_model(args):
                 input_features,
                 prompt_ids=prompt_ids,
                 language=args.language,
-                suppress_tokens=suppress_ids,
+                return_dict_in_generate=True,
+                output_attentions=True,
+                output_hidden_states=True,
+                output_scores=True,
+                output_logits=True,
+                # suppress_tokens=suppress_ids,
             )
             if isinstance(model_output, WhisperMedusaGenerationOutput):
                 count_selected_heads = model_output.count_selected_heads

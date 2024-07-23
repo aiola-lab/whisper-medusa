@@ -15,7 +15,6 @@ import copy
 from transformers.generation.configuration_utils import GenerationConfig, GenerationMode
 from transformers.generation.logits_process import (
     LogitsProcessorList,
-    SuppressTokensLogitsProcessor,
 )
 
 from transformers.generation.utils import (
@@ -35,28 +34,13 @@ import inspect
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
-from transformers.models.whisper.modeling_whisper import WhisperDecoderLayer
+from transformers.models.whisper.modeling_whisper import WhisperDecoderLayer, shift_tokens_right
 
 @dataclass
 class WhisperMedusaGenerationOutput:
     input_ids: torch.Tensor
     count_selected_heads: Dict[str, int]
 
-# Copied from transformers.models.whisper.modeling_whisper.shift_tokens_right
-def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
-    """
-    Shift input ids one token to the right.
-    """
-    shifted_input_ids = input_ids.new_zeros(input_ids.shape)
-    shifted_input_ids[:, 1:] = input_ids[:, :-1].clone()
-    shifted_input_ids[:, 0] = decoder_start_token_id
-
-    if pad_token_id is None:
-        raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
-    shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
-
-    return shifted_input_ids
 
 class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
     def __init__(self, config, *model_args, **model_kwargs):
@@ -263,7 +247,13 @@ class WhisperMedusaModel(PreTrainedModel):
                 self.medusa_heads.append(nn.Sequential(*head_list))
 
         self.whisper_model.freeze_name2func.update({"whisper": self._freeze_whisper})
-        self.generation_config = medusa_utils.MedusaGenerationConfig.from_model_config(self.config) if self.can_generate() else None # update generation_config to contain medusa parameters
+        self.update_generation_config(self.config)
+    
+
+    def update_generation_config(self, config):
+        generation_config_dict = self.whisper_model.generation_config.to_dict()
+        self.generation_config = medusa_utils.MedusaGenerationConfig(**generation_config_dict)
+        self.generation_config.update(**config.to_dict())
 
     def _freeze_whisper(self):
         self.whisper_model._freeze_all()
@@ -278,12 +268,21 @@ class WhisperMedusaModel(PreTrainedModel):
         # Manually load config to ensure that the medusa_num_heads parameter is loaded
 
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
-        return super().from_pretrained(
+        model = super().from_pretrained(
             pretrained_model_name_or_path,
             *args,
             **kwargs,
             config=config,
         )
+        if model.can_generate() and pretrained_model_name_or_path is not None:
+            try:
+                model.generation_config = medusa_utils.MedusaGenerationConfig.from_pretrained(pretrained_model_name_or_path)
+            except OSError:
+                logger.info(
+                    "Generation config file not found, using a generation config created from the model config."
+                )
+                pass
+        return model
 
     def get_medusa_choice(self):
         return self.config.medusa_choices 
@@ -355,18 +354,45 @@ class WhisperMedusaModel(PreTrainedModel):
         outputs: ModelOutput,
         tree_outputs: ModelOutput,
         select_indices: torch.Tensor,
+        selected_tree_indices: torch.Tensor,
         accept_length: torch.Tensor,
+        prev_indices: torch.Tensor,
     ):
         if getattr(outputs, 'decoder_attentions', None) is not None:
-            pass #TODO- check if code changes are needed
-        if getattr(outputs, 'attentions', None) is not None:
-            pass #TODO- check if code changes are needed
+            prev_and_accept = torch.cat([prev_indices, select_indices], dim=0)
+            orig_decoder_attentions = outputs.decoder_attentions
+            tree_decoder_attentions = tree_outputs.decoder_attentions
+            all_decoder_attentions = ()
+            for i in range(len(orig_decoder_attentions)):
+                orig_attentions = orig_decoder_attentions[i]
+                tree_attentions = tree_decoder_attentions[i][:,:, selected_tree_indices]
+                if len(tree_attentions.shape)<4:
+                    tree_attentions = tree_attentions.unsqueeze(2)
+                tree_attentions = tree_attentions[:, :, :, prev_and_accept]
+                all_decoder_attentions += (orig_attentions,tree_attentions),
+            tree_outputs.decoder_attentions = all_decoder_attentions
+        if getattr(outputs, 'encoder_attentions', None) is not None:
+            tree_outputs.encoder_attentions = outputs.encoder_attentions
         if getattr(outputs, 'cross_attentions', None) is not None:
-            pass #TODO- check if code changes are needed
-        if getattr(outputs, 'hidden_states', None) is not None:
-            pass #TODO- check if code changes are needed
+            orig_cross_attentions = outputs.cross_attentions
+            tree_cross_attentions = tree_outputs.cross_attentions
+            all_cross_attentions = ()
+            for i in range(len(orig_cross_attentions)):
+                current_orig_cross_attentions = orig_cross_attentions[i]
+                current_tree_cross_attentions = tree_cross_attentions[i][:,:, selected_tree_indices]
+                all_cross_attentions += (current_orig_cross_attentions,current_tree_cross_attentions),
+            tree_outputs.cross_attentions = all_cross_attentions
+        if getattr(outputs, 'encoder_hidden_states', None) is not None:
+            tree_outputs.encoder_hidden_states = outputs.encoder_hidden_states
         if getattr(outputs, 'decoder_hidden_states', None) is not None:
-            pass #TODO- check if code changes are needed
+            orig_decoder_hidden_states = outputs.decoder_hidden_states
+            tree_decoder_hidden_states = tree_outputs.decoder_hidden_states
+            all_decoder_hidden_states = ()
+            for i in range(len(orig_decoder_hidden_states)):
+                current_orig_decoder_hidden_states = orig_decoder_hidden_states[i]
+                current_tree_decoder_hidden_states = tree_decoder_hidden_states[i][:, selected_tree_indices]
+                all_decoder_hidden_states += (torch.cat([current_orig_decoder_hidden_states, current_tree_decoder_hidden_states], dim=1),)
+            tree_outputs.decoder_hidden_states = all_decoder_hidden_states
         if getattr(outputs, 'past_key_values', None) is not None:
             # past_key_values contains decoder num_layers tuples, each with a tuple contains 4 tensors. 
             # The first and second are the attention key and value with shape (batch_size, num_heads, sequence_length, embed_size_per_head)
@@ -384,12 +410,6 @@ class WhisperMedusaModel(PreTrainedModel):
                 layer_past_key_values_tuple += (layer_orig_past_key_values[2], layer_orig_past_key_values[3])
                 all_past_key_values_tuple += (layer_past_key_values_tuple,)
             tree_outputs.past_key_values = all_past_key_values_tuple
-        if getattr(outputs, 'mems', None) is not None:
-            pass #TODO- check if code changes are needed
-        if getattr(outputs, 'past_buckets_states', None) is not None:
-            pass #TODO- check if code changes are needed
-        if getattr(outputs, "state", None) is not None:
-            pass #TODO- check if code changes are needed
 
 
     def _medusa_greedy_search(
@@ -583,6 +603,7 @@ class WhisperMedusaModel(PreTrainedModel):
         accept_length_list = []
         with torch.inference_mode():
             while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
+
                 # prepare model inputs
                 model_inputs = self.whisper_model.prepare_inputs_for_generation(input_ids, **model_kwargs)
                 # forward pass to get next token
@@ -673,7 +694,7 @@ class WhisperMedusaModel(PreTrainedModel):
                 # if eos_token was found in one sentence, set sentence to finished
                 if eos_token_id_tensor is not None: 
                     unfinished_sequences = unfinished_sequences.mul(
-                    next_tokens[:,-1].unsqueeze(1).tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0))# NOTE - this only check that the last token is eof 
+                    next_tokens[:,-1].unsqueeze(1).tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0))# NOTE - this only check that the last token is eos_token_id 
                 
                 unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
                 this_peer_finished = unfinished_sequences.max() == 0 or input_ids.shape[1] + self.config.medusa_num_heads >= self.generation_config.max_length
@@ -815,7 +836,7 @@ class WhisperMedusaModel(PreTrainedModel):
         """
         # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
         self.whisper_model._validate_model_class()
-        generation_config, model_kwargs = self.whisper_model._prepare_generation_config(generation_config, **kwargs) # TODO- CHECK THIS WITH MEDUSA GENERATION CONFIG
+        generation_config, model_kwargs = self.whisper_model._prepare_generation_config(generation_config, **kwargs) 
         self.whisper_model._validate_model_kwargs(model_kwargs.copy())
 
         # 2. Set generation parameters if not already defined
@@ -1013,10 +1034,13 @@ class WhisperMedusaModel(PreTrainedModel):
 
     def _retrieve_logit_processors(self, generation_config, logits_processor, begin_index, is_shortform, num_beams):
         if generation_config.return_timestamps is True: 
-            timestamp_processor = medusa_utils.MedusaWhisperTimeStampLogitsProcessor(generation_config, begin_index=begin_index)
-            logits_processor = (
-                [timestamp_processor] if logits_processor is None else [timestamp_processor] + logits_processor
-            )
+            
+            raise NotImplementedError("return_timestamps is not supported with medusa for now")
+            # TODO - Implement return_timestamps
+            # timestamp_processor = medusa_utils.MedusaWhisperTimeStampLogitsProcessor(generation_config, begin_index=begin_index)
+            # logits_processor = (
+            #     [timestamp_processor] if logits_processor is None else [timestamp_processor] + logits_processor
+            # )
 
         if generation_config.suppress_tokens is not None:
             suppress_tokens_processor = medusa_utils.MedusaSuppressTokensLogitsProcessor(generation_config.suppress_tokens)
@@ -1038,16 +1062,19 @@ class WhisperMedusaModel(PreTrainedModel):
             )
             generation_config.begin_suppress_tokens = None
 
-        if generation_config.no_speech_threshold is not None and not is_shortform:
-            no_speech_detector = medusa_utils.MedusaWhisperNoSpeechDetection(
-                no_speech_token=generation_config.no_timestamps_token_id - 1,
-                begin_index=begin_index,
-                scores_is_logprobs=num_beams > 1,
-            )
-            logits_processor = (
-                [no_speech_detector] if logits_processor is None else [no_speech_detector] + logits_processor
-            )
-            no_speech_detector.set_model(self)
+        if generation_config.no_speech_threshold is not None and not is_shortform: 
+            
+            raise NotImplementedError("no_speech_detection is not supported with medusa for now")
+            # TODO - Implement no_speech_detection
+            # no_speech_detector = medusa_utils.MedusaWhisperNoSpeechDetection(
+            #     no_speech_token=generation_config.no_timestamps_token_id - 1,
+            #     begin_index=begin_index,
+            #     scores_is_logprobs=num_beams > 1,
+            # )
+            # logits_processor = (
+            #     [no_speech_detector] if logits_processor is None else [no_speech_detector] + logits_processor
+            # )
+            # no_speech_detector.set_model(self)
 
         return logits_processor
     
@@ -1112,21 +1139,7 @@ class WhisperMedusaModel(PreTrainedModel):
             base_logits = self.whisper_model.proj_out(hidden_states)
             medusa_logits.append(base_logits)
             if not disable_medusa:
-                if self.config.medusa_heads_type == "linear":
-                    for i in range(len(self.medusa_heads)):
-                        head_out = self.medusa_heads[i](hidden_states)
-                        head_proj = self.whisper_model.proj_out(head_out)
-                        medusa_logits.append(head_proj)
-                elif self.config.medusa_heads_type == "lstm":
-                    batch_size, seq_len, hidden_dim = hidden_states.shape
-                    lstm_hidden_states = hidden_states.reshape(batch_size*seq_len, 1, hidden_dim)
-                    hidden, cell = self.medusa_heads.init_hidden(lstm_hidden_states.shape[0], hidden_states.device)
-                    for i in range(self.config.medusa_num_heads):
-                        head_out, hidden, cell = self.medusa_heads(lstm_hidden_states, hidden, cell)
-                        head_out = head_out.squeeze(1).reshape(batch_size, seq_len, hidden_dim)
-                        head_proj = self.whisper_model.proj_out(head_out)
-                        medusa_logits.append(head_proj)  
-                elif self.config.medusa_heads_type == "whisper_block":
+                if self.config.medusa_heads_type == "whisper_block":
                     use_cache = use_cache if use_cache is not None else self.config.use_cache
                     past_key_value = past_key_values[-1] if past_key_values is not None else None 
                     medusa_block_decoder_outputs = self.medusa_block(
@@ -1146,7 +1159,7 @@ class WhisperMedusaModel(PreTrainedModel):
                         whisper_model_outputs.decoder_attentions += (medusa_block_decoder_outputs[1],)
 
                         if whisper_model_outputs.encoder_last_hidden_state is not None:
-                            whisper_model_outputs.cross_attention += (medusa_block_decoder_outputs[2],)
+                            whisper_model_outputs.cross_attentions += (medusa_block_decoder_outputs[2],)
 
                     for i in range(len(self.medusa_heads)):
                         head_out = self.medusa_heads[i](medusa_block_decoder_outputs[0])
@@ -1165,7 +1178,6 @@ class WhisperMedusaModel(PreTrainedModel):
                         layer_head_mask=(head_mask[-1] if head_mask is not None else None),
                         cross_attn_layer_head_mask=(cross_attn_head_mask[-1] if cross_attn_head_mask is not None else None ),
                         past_key_value=past_key_value,
-                        # past_key_value=None,
                         output_attentions=output_attentions,
                         use_cache=use_cache,
                                 )
@@ -1176,7 +1188,7 @@ class WhisperMedusaModel(PreTrainedModel):
                         whisper_model_outputs.decoder_attentions += (medusa_block_decoder_outputs[1],)
 
                         if whisper_model_outputs.encoder_last_hidden_state is not None:
-                            whisper_model_outputs.cross_attention += (medusa_block_decoder_outputs[2],)
+                            whisper_model_outputs.cross_attentions += (medusa_block_decoder_outputs[2],)
 
         stack_heads_logits = torch.stack(medusa_logits, dim=0)
 
@@ -1236,12 +1248,11 @@ class WhisperMedusaModel(PreTrainedModel):
             )
         # 1. copy generation config
         if generation_config is None:
-            generation_config = copy.deepcopy(self.whisper_model.generation_config)
-            generation_config = medusa_utils.MedusaGenerationConfig(**generation_config.to_dict())# TODO- load this from medusa config
-            # generation_config = self.generation_config
+            generation_config = copy.deepcopy(self.generation_config)
         else:
             generation_config = copy.deepcopy(generation_config)
             
+
 
         # 2. set global generate variables
         input_stride = self.whisper_model.model.encoder.conv1.stride[0] * self.whisper_model.model.encoder.conv2.stride[0]
@@ -1370,272 +1381,8 @@ class WhisperMedusaModel(PreTrainedModel):
 
             return outputs
 
-        # 6. Else we're in longform mode which is more complex.
-        # We need to chunk the audio input depending on when the model generates timestamp tokens
-
-        # 6.1 Set and retrieve global longform generation variables
-        self.whisper_model._set_condition_on_prev_tokens(
-            condition_on_prev_tokens=condition_on_prev_tokens, generation_config=generation_config
-        )
-
-        timestamp_begin = generation_config.no_timestamps_token_id + 1
-        temperatures = [temperature] if not isinstance(temperature, (list, tuple)) else temperature
-        temperature = temperatures[0]
-        batch_size = input_features.shape[0]
-
-        max_frames, seek = self.whisper_model._retrieve_max_frames_and_seek(
-            batch_size=batch_size, attention_mask=attention_mask, total_input_frames=total_input_frames
-        )
-
-        # 6.2 Preppare running variables, list for generation
-        cur_bsz = batch_size
-        current_segments = self.whisper_model._prepare_segments(
-            prompt_ids=prompt_ids,
-            batch_size=batch_size,
-            generation_config=generation_config,
-        )
-
-        batch_idx_map = list(range(batch_size))
-        do_condition_on_prev_tokens = [condition_on_prev_tokens for _ in range(batch_size)]
-
-        # 6.2 Transcribe audio until we reach the end of all input audios
-        while (seek < max_frames).any():
-            # 6.3 NOTE: When in longform transcription mode and batch size > 1 we need to dynamically reduce the batch size during the loop
-            # in case one audio finished earlier than another one. Thus, we need to keep a table of "previous-index-2-current-index" in order
-            # to know which original audio is being decoded
-            # Set updated index map, duration of previously decoded chunks and number of max frames of current decoding chunk
-            input_features, cur_bsz, batch_idx_map = self.whisper_model._maybe_reduce_batch(
-                input_features=input_features,
-                seek=seek,
-                max_frames=max_frames,
-                cur_bsz=cur_bsz,
-                batch_idx_map=batch_idx_map,
-            )
-            time_offset = seek * time_precision / input_stride
-            seek_num_frames = (max_frames - seek).clamp(max=num_segment_frames)
-
-            # 6.4 cut out next 30s segment from input features
-            segment_input = self.whisper_model._get_input_segment(
-                input_features=input_features,
-                seek=seek,
-                seek_num_frames=seek_num_frames,
-                num_segment_frames=num_segment_frames,
-                cur_bsz=cur_bsz,
-                batch_idx_map=batch_idx_map,
-            )
-
-            # 6.5 prepare decoder input ids
-            suppress_tokens = _get_attr_from_logit_processors(
-                logits_processor, SuppressTokensLogitsProcessor, "suppress_tokens"
-            )
-            decoder_input_ids, kwargs = self.whisper_model._prepare_decoder_input_ids(
-                cur_bsz=cur_bsz,
-                init_tokens=init_tokens,
-                current_segments=current_segments,
-                batch_idx_map=batch_idx_map,
-                do_condition_on_prev_tokens=do_condition_on_prev_tokens,
-                prompt_ids=prompt_ids,
-                generation_config=generation_config,
-                config=self.config,
-                device=segment_input.device,
-                suppress_tokens=suppress_tokens,
-                kwargs=kwargs,
-            )
-
-            # 6.6 set max new tokens or max length
-            kwargs = self.whisper_model._set_max_new_tokens_and_length(
-                config=self.config,
-                decoder_input_ids=decoder_input_ids,
-                generation_config=generation_config,
-                kwargs=kwargs,
-            )
-
-            # 6.7 Set current `begin_index` for all logit processors
-            for proc in logits_processor:
-                if hasattr(proc, "set_begin_index"):
-                    proc.set_begin_index(decoder_input_ids.shape[-1])
-
-            # TODO-  change to multi heads!!!
-            # 6.8 Run generate with fallback
-            seek_sequences, seek_outputs, should_skip, do_condition_on_prev_tokens = self.whisper_model.generate_with_fallback(
-                segment_input=segment_input,
-                decoder_input_ids=decoder_input_ids,
-                cur_bsz=cur_bsz,
-                batch_idx_map=batch_idx_map,
-                seek=seek,
-                num_segment_frames=num_segment_frames,
-                max_frames=max_frames,
-                temperatures=temperatures,
-                generation_config=generation_config,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                synced_gpus=synced_gpus,
-                return_token_timestamps=return_token_timestamps,
-                do_condition_on_prev_tokens=do_condition_on_prev_tokens,
-                kwargs=kwargs,
-            )
-
-            # 6.9 In every generated sequence, split by timestamp tokens and extract segments
-            for i, seek_sequence in enumerate(seek_sequences):
-                prev_i = batch_idx_map[i]
-
-                if should_skip[i]:
-                    seek[prev_i] += seek_num_frames[prev_i]
-                    continue
-
-                segments, segment_offset = self.whisper_model._retrieve_segment(
-                    seek_sequence=seek_sequence,
-                    seek_outputs=seek_outputs,
-                    time_offset=time_offset,
-                    timestamp_begin=timestamp_begin,
-                    seek_num_frames=seek_num_frames,
-                    time_precision=time_precision,
-                    input_stride=input_stride,
-                    prev_idx=prev_i,
-                    idx=i,
-                    return_token_timestamps=return_token_timestamps,
-                )
-
-                current_segments[prev_i] += segments
-                seek[prev_i] += segment_offset
-
-        # 7. Once all segments are added to the list of all segments, called `current_segments`, we extract the predicted
-        # output tokens from the list of dicts. If we use batch size > 1, we make sure to pad the output
-        final_segments = (
-            [x[1:] for x in current_segments]
-            if (prompt_ids is not None and generation_config.prompt_condition_type == "first-segment")
-            else current_segments
-        )
-        sequences = _pad_to_max_length(final_segments, generation_config.pad_token_id, padding="right")
-
-        # 8. If we return all segments, the predicted output sequences are put under `"sequences"`.
-        if return_segments:
-            return {"sequences": sequences, "segments": final_segments}
-
-        return sequences
-
-    def generate_with_fallback(
-        self,
-        segment_input,
-        decoder_input_ids,
-        cur_bsz,
-        batch_idx_map,
-        seek,
-        num_segment_frames,
-        max_frames,
-        temperatures,
-        generation_config,
-        logits_processor,
-        stopping_criteria,
-        prefix_allowed_tokens_fn,
-        synced_gpus,
-        return_token_timestamps,
-        do_condition_on_prev_tokens,
-        kwargs,
-    ):
-        # TODO -THIS FUNCTION WASN'T CHECKED YET FOR MEDUSA!
-        # 6.6 Batch generate current chunk
-        seek_sequence_list = [None for _ in range(cur_bsz)]
-        seek_outputs_list = [None for _ in range(cur_bsz)]
-        needs_fallback = [False for _ in range(cur_bsz)]
-        should_skip = [False for _ in range(cur_bsz)]
-        fallback_index_map = list(range(cur_bsz))
-
-        if generation_config.no_speech_threshold is not None:
-            self.whisper_model._setup_no_speech_detection(logits_processor, segment_input, decoder_input_ids, kwargs)
-
-        for fallback_idx, temperature in enumerate(temperatures):
-            generation_config.do_sample = temperature is not None and temperature > 0.0
-
-            generation_config.temperature = temperature if generation_config.do_sample else 1.0
-            generation_config.num_beams = kwargs.pop("num_beams", 1) if not generation_config.do_sample else 1
-
-            
-            seek_outputs = super().generate(
-                segment_input,
-                generation_config,
-                logits_processor,
-                stopping_criteria,
-                prefix_allowed_tokens_fn,
-                synced_gpus,
-                decoder_input_ids=decoder_input_ids,
-                **kwargs,
-            )
-
-            # post-process sequence tokens and outputs to be in list form
-            seek_sequences, seek_outputs = self.whisper_model._postprocess_outputs(
-                seek_outputs=seek_outputs,
-                decoder_input_ids=decoder_input_ids,
-                return_token_timestamps=return_token_timestamps,
-                generation_config=generation_config,
-            )
-
-            # 6.7 Extract cut sequences from every sequence and check if fallback should be applied
-            # Loop over each decoded audio individually as each decoding can be of a different length
-            new_fallback_index_map = []
-            new_segment_input = []
-            new_decoder_input_ids = []
-            new_decoder_attention_mask = []
-
-            for i, seek_sequence in enumerate(seek_sequences):
-                # make sure we cut a predicted EOS token if we are not finished with the generation yet
-                prev_i = batch_idx_map[fallback_index_map[i]]
-                is_not_final = (seek[prev_i] + num_segment_frames) < max_frames[prev_i]
-
-                # remove eos token id
-                if is_not_final and seek_sequence[-1] == generation_config.eos_token_id:
-                    seek_sequence = seek_sequence[:-1]
-                    if return_token_timestamps:
-                        seek_outputs[i]["token_timestamps"] = seek_outputs[i]["token_timestamps"][:-1]
-
-                # remove all padding tokens
-                if seek_sequence[-1] == generation_config.pad_token_id:
-                    num_paddings = (seek_sequence == generation_config.pad_token_id).sum()
-                    seek_sequence = seek_sequence[:-num_paddings]
-                    if return_token_timestamps:
-                        seek_outputs[i]["token_timestamps"] = seek_outputs[i]["token_timestamps"][:-num_paddings]
-
-                # check which sequences in batch need fallback & which should be skipped
-                needs_fallback[i], should_skip[i] = self.whisper_model._need_fallback(
-                    seek_sequence,
-                    seek_outputs,
-                    i,
-                    logits_processor,
-                    generation_config,
-                    self.config.vocab_size,
-                    temperature,
-                )
-
-                seek_sequence_list[fallback_index_map[i]] = seek_sequence
-                seek_outputs_list[fallback_index_map[i]] = seek_outputs[i]
-                is_low_temperature = temperature is None or temperature < 0.5
-                do_condition_on_prev_tokens[fallback_index_map[i]] = (
-                    generation_config.condition_on_prev_tokens and is_low_temperature
-                )
-
-                if needs_fallback[i]:
-                    new_fallback_index_map.append(fallback_index_map[i])
-                    new_segment_input.append(segment_input[i])
-                    new_decoder_input_ids.append(decoder_input_ids[i])
-                    if "decoder_attention_mask" in kwargs:
-                        new_decoder_attention_mask.append(kwargs["decoder_attention_mask"][i])
-
-            fallback_index_map = new_fallback_index_map
-
-            # if no sequence needs to be run with temperature fallback, we're finished
-            if len(fallback_index_map) == 0 or fallback_idx == len(temperatures) - 1:
-                seek_sequences = seek_sequence_list
-                seek_outputs = seek_outputs_list
-                break
-
-            # if we're still in the loop, make sure that decoder_input_ids and segment inputs are tensors
-            decoder_input_ids = torch.stack(new_decoder_input_ids)
-            segment_input = torch.stack(new_segment_input)
-            if "decoder_attention_mask" in kwargs:
-                kwargs["decoder_attention_mask"] = torch.stack(new_decoder_attention_mask)
-
-        return seek_sequences, seek_outputs, should_skip, do_condition_on_prev_tokens
+        else:
+            raise NotImplementedError("Longform generation is not supported yet")
 
 def get_model(args_i):
 
