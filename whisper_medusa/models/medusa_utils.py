@@ -16,6 +16,7 @@ class MedusaGenerationConfig(GenerationConfig):
         super().__init__(**kwargs)
         self.posterior_threshold = kwargs.pop("posterior_threshold", 0.09)
         self.posterior_alpha = kwargs.pop("posterior_alpha", 0.3)
+        self.max_steps = kwargs.pop("max_steps", None)
 
 class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
     # TODO- THIS CLASS WASN'T CHECKED YET FOR MEDUSA!

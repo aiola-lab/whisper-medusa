@@ -65,6 +65,7 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
                 encoder_outputs=encoder_output,
                 decoder_input_ids=current_input_ids,
                 do_sample=False,
+                return_dict_in_generate=True,
                 num_beams=1,
                 max_length=current_input_ids.shape[-1] + max_new_tokens,
                 language="en",
@@ -83,8 +84,8 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
             # Break if the model generates the end-of-sequence token
             if new_token_ids[-1] == processor.tokenizer.eos_token_id:
                 break
-
-            token_times.extend((new_token_id, token_time) for new_token_id in new_token_ids)
+       
+            token_times.extend( (new_token_id, token_time if i==0 else token_time + i*0.001)  for i,new_token_id in enumerate(new_token_ids))
 
     # Decode the generated tokens to text
     generated_text = processor.tokenizer.decode(output_ids, skip_special_tokens=True)

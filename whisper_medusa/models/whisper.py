@@ -267,6 +267,10 @@ class WhisperMedusaModel(PreTrainedModel):
 
     def _freeze_whisper(self):
         self.whisper_model._freeze_all()
+    
+
+    def get_encoder(self):
+        return self.whisper_model.get_encoder()
 
     @classmethod
     def from_pretrained(
@@ -409,6 +413,7 @@ class WhisperMedusaModel(PreTrainedModel):
         temperature: float = 0.0,
         posterior_threshold: float = 0.09,
         posterior_alpha: float = 0.3,
+        max_steps: Optional[bool] = None,
         synced_gpus: bool = False,
         streamer: Optional["BaseStreamer"] = None,
         **model_kwargs,
@@ -581,11 +586,9 @@ class WhisperMedusaModel(PreTrainedModel):
         new_token = 0
         accept_length_list = []
 
-        max_steps = model_kwargs.get("max_steps", self.generation_config.max_length)  # todo: remove this line
-
         with torch.inference_mode():
             curr_steps = 0
-            while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device) and curr_steps < max_steps:
+            while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
                 curr_steps += 1
                 # prepare model inputs
                 model_inputs = self.whisper_model.prepare_inputs_for_generation(input_ids, **model_kwargs)
@@ -679,7 +682,9 @@ class WhisperMedusaModel(PreTrainedModel):
                     unfinished_sequences = unfinished_sequences.mul(
                     next_tokens[:,-1].unsqueeze(1).tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0))# NOTE - this only check that the last token is eof 
                 
-                unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
+                unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores) 
+                if max_steps is not None and curr_steps >= max_steps:
+                    unfinished_sequences = torch.zeros_like(unfinished_sequences)
                 this_peer_finished = unfinished_sequences.max() == 0 or input_ids.shape[1] + self.config.medusa_num_heads >= self.generation_config.max_length
 
         if streamer is not None:
@@ -996,6 +1001,7 @@ class WhisperMedusaModel(PreTrainedModel):
                 temperature=generation_config.temperature,
                 posterior_threshold=generation_config.posterior_threshold,
                 posterior_alpha=generation_config.posterior_alpha,
+                max_steps=generation_config.max_steps,
                 synced_gpus=synced_gpus,
                 streamer=streamer,
                 **model_kwargs,
@@ -1231,7 +1237,11 @@ class WhisperMedusaModel(PreTrainedModel):
         **kwargs,
     ):
         # # 0. deprecate old inputs
-        assert input_features.shape[0] == 1, "Only support batch size 1 for now!!"
+        if not input_features is None:
+            assert input_features.shape[0] == 1, "Only support batch size 1 for now!!"
+        else:
+            assert kwargs["encoder_outputs"].last_hidden_state.shape[0] == 1, "Only support batch size 1 for now!!"
+        
         if "inputs" in kwargs:
             input_features = kwargs.pop("inputs")
             warnings.warn(
