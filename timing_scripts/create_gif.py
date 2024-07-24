@@ -59,7 +59,7 @@ def create_gif(
     frames = []
     durations = []
     current_text = ""
-
+    curr_time = 0
     for word, duration in word_time_pairs:
         current_text += word
         img = create_image_with_text(
@@ -69,7 +69,8 @@ def create_gif(
             font_path=font_path,
         )
         frames.append(img)
-        durations.append(duration)
+        durations.append(duration - curr_time)
+        curr_time = duration
 
     # Save the frames as a GIF
     frames[0].save(

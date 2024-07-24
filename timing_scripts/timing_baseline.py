@@ -32,12 +32,15 @@ def main(whisper_model, audio_file, output_file):
     input_features = inputs.input_features.to(device)
 
     # Initialize variables
-    output_ids = [d[1] for d in model.config.forced_decoder_ids]
+    processor.tokenizer.set_prefix_tokens(language="en")
+    output_ids = processor.tokenizer("").input_ids  # [d[1] for d in model.config.forced_decoder_ids]
     token_times = []
 
+    model.generation_config.return_dict_in_generate = True
     # Start token-by-token generation
     with torch.no_grad():
         # get encoder output
+        past_key_values = None
         encoder_output = model.get_encoder()(input_features)
         # todo: consider also timing the encoder part
         start_time = time.time()  # NOTE: we are not timing the encoder!!!
@@ -47,16 +50,18 @@ def main(whisper_model, audio_file, output_file):
 
             # Generate the next token
             outputs = model.generate(
-                input_features,
-                encoder_outputs=encoder_output.last_hidden_state,
+                encoder_outputs=encoder_output,
                 decoder_input_ids=current_input_ids,
                 do_sample=False,
                 num_beams=1,
                 max_length=current_input_ids.shape[-1] + 1,
+                language="en",
+                past_key_values=past_key_values,
             )
 
             # Extract the new token
-            new_token_id = outputs[0, -1].item()
+            new_token_id = outputs.sequences[0, -1].item()
+            past_key_values = outputs.past_key_values
             output_ids.append(new_token_id)
 
             # Record the time taken to generate this token
