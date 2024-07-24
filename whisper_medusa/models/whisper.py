@@ -411,7 +411,6 @@ class WhisperMedusaModel(PreTrainedModel):
         posterior_alpha: float = 0.3,
         synced_gpus: bool = False,
         streamer: Optional["BaseStreamer"] = None,
-
         **model_kwargs,
     ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
         r"""
@@ -581,8 +580,13 @@ class WhisperMedusaModel(PreTrainedModel):
         self.medusa_mask = medusa_buffers["medusa_attn_mask"]
         new_token = 0
         accept_length_list = []
+
+        max_steps = model_kwargs.get("max_steps", self.generation_config.max_length)  # todo: remove this line
+
         with torch.inference_mode():
-            while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
+            curr_steps = 0
+            while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device) and curr_steps < max_steps:
+                curr_steps += 1
                 # prepare model inputs
                 model_inputs = self.whisper_model.prepare_inputs_for_generation(input_ids, **model_kwargs)
                 # forward pass to get next token

@@ -1,4 +1,7 @@
+import logging
+
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from whisper_medusa.models.whisper import WhisperMedusaModel, WhisperMedusaGenerationOutput
 import torch
 import time
 import torchaudio
@@ -7,10 +10,15 @@ import json
 from pathlib import Path
 
 
-def main(whisper_model, audio_file, output_file):
+def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
+    architecture2module = {
+        "whisper": WhisperForConditionalGeneration,
+        "medusa": WhisperMedusaModel,
+    }
+    logging.info(f"Using model: {arch}")
     # Load processor and model
     processor = WhisperProcessor.from_pretrained("openai/whisper-tiny")
-    model = WhisperForConditionalGeneration.from_pretrained(whisper_model)
+    model = architecture2module[arch].from_pretrained(whisper_model)
 
     # Move the model to the GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -40,13 +48,17 @@ def main(whisper_model, audio_file, output_file):
     # Start token-by-token generation
     with torch.no_grad():
         # get encoder output
+        n_heads = 10
+        max_new_tokens = 1 if arch == "whisper" else n_heads
+        extra_kwargs = {} if arch == "whisper" else {"max_steps": 1}
         past_key_values = None
         encoder_output = model.get_encoder()(input_features)
         # todo: consider also timing the encoder part
         start_time = time.time()  # NOTE: we are not timing the encoder!!!
-        for _ in range(50):  # limit the number of generated tokens
+        for _ in range(max_tokens):  # limit the number of generated tokens
             # Get the current input (including previously generated tokens)
             current_input_ids = torch.tensor(output_ids, device=device).unsqueeze(0)
+            curr_seq_len = current_input_ids.shape[-1]
 
             # Generate the next token
             outputs = model.generate(
@@ -54,24 +66,25 @@ def main(whisper_model, audio_file, output_file):
                 decoder_input_ids=current_input_ids,
                 do_sample=False,
                 num_beams=1,
-                max_length=current_input_ids.shape[-1] + 1,
+                max_length=current_input_ids.shape[-1] + max_new_tokens,
                 language="en",
                 past_key_values=past_key_values,
+                **extra_kwargs
             )
 
             # Extract the new token
-            new_token_id = outputs.sequences[0, -1].item()
+            new_token_ids = outputs.sequences[0, curr_seq_len:].tolist()
             past_key_values = outputs.past_key_values
-            output_ids.append(new_token_id)
+            output_ids.extend(new_token_ids)
 
             # Record the time taken to generate this token
             token_time = time.time() - start_time
 
             # Break if the model generates the end-of-sequence token
-            if new_token_id == processor.tokenizer.eos_token_id:
+            if new_token_ids[-1] == processor.tokenizer.eos_token_id:
                 break
 
-            token_times.append((new_token_id, token_time))
+            token_times.extend((new_token_id, token_time) for new_token_id in new_token_ids)
 
     # Decode the generated tokens to text
     generated_text = processor.tokenizer.decode(output_ids, skip_special_tokens=True)
@@ -109,5 +122,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-file", type=str, default="./outputs/vanilla_timing.json"
     )
+    parser.add_argument(
+        "--max-tokens", type=int, default=100
+    )
+    parser.add_argument("--arch", type=str, default="whisper", choices=["whisper", "medusa"])
     args = parser.parse_args()
-    main(args.whisper_model, args.audio_file, output_file=args.output_file)
+    main(
+        args.whisper_model, args.audio_file, output_file=args.output_file, max_tokens=args.max_tokens, arch=args.arch
+    )
