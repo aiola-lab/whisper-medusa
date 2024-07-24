@@ -1,7 +1,10 @@
 import logging
 
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
-from whisper_medusa.models.whisper import WhisperMedusaModel, WhisperMedusaGenerationOutput
+from whisper_medusa.models.whisper import (
+    WhisperMedusaModel,
+    WhisperMedusaGenerationOutput,
+)
 import torch
 import time
 import torchaudio
@@ -41,7 +44,9 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
 
     # Initialize variables
     processor.tokenizer.set_prefix_tokens(language="en")
-    output_ids = processor.tokenizer("").input_ids  # [d[1] for d in model.config.forced_decoder_ids]
+    output_ids = processor.tokenizer(
+        ""
+    ).input_ids  # [d[1] for d in model.config.forced_decoder_ids]
     token_times = []
 
     model.generation_config.return_dict_in_generate = True
@@ -70,7 +75,7 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
                 max_length=current_input_ids.shape[-1] + max_new_tokens,
                 language="en",
                 past_key_values=past_key_values,
-                **extra_kwargs
+                **extra_kwargs,
             )
 
             # Extract the new token
@@ -84,8 +89,11 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
             # Break if the model generates the end-of-sequence token
             if new_token_ids[-1] == processor.tokenizer.eos_token_id:
                 break
-       
-            token_times.extend( (new_token_id, token_time if i==0 else token_time + i*0.001)  for i,new_token_id in enumerate(new_token_ids))
+
+            token_times.extend(
+                (new_token_id, token_time if i == 0 else token_time + i * 0.001)
+                for i, new_token_id in enumerate(new_token_ids)
+            )
 
     # Decode the generated tokens to text
     generated_text = processor.tokenizer.decode(output_ids, skip_special_tokens=True)
@@ -123,11 +131,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-file", type=str, default="./outputs/vanilla_timing.json"
     )
+    parser.add_argument("--max-tokens", type=int, default=100)
     parser.add_argument(
-        "--max-tokens", type=int, default=100
+        "--arch", type=str, default="whisper", choices=["whisper", "medusa"]
     )
-    parser.add_argument("--arch", type=str, default="whisper", choices=["whisper", "medusa"])
     args = parser.parse_args()
     main(
-        args.whisper_model, args.audio_file, output_file=args.output_file, max_tokens=args.max_tokens, arch=args.arch
+        args.whisper_model,
+        args.audio_file,
+        output_file=args.output_file,
+        max_tokens=args.max_tokens,
+        arch=args.arch,
     )
