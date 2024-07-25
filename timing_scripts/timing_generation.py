@@ -44,9 +44,7 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
 
     # Initialize variables
     processor.tokenizer.set_prefix_tokens(language="en")
-    output_ids = processor.tokenizer(
-        ""
-    ).input_ids  # [d[1] for d in model.config.forced_decoder_ids]
+    output_ids = processor.tokenizer.prefix_tokens
     token_times = []
 
     model.generation_config.return_dict_in_generate = True
@@ -85,8 +83,6 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
 
             # Record the time taken to generate this token
             token_time = time.time() - start_time
-
-
 
             token_times.extend(
                 (new_token_id, token_time if i == 0 else token_time + i * 0.0001)
