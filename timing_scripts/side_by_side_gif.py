@@ -18,7 +18,7 @@ def create_image_with_text(
     text,
     elapsed_time,
     title,
-    image_size=(500, 250),  # Increase height to accommodate title
+    image_size=(350, 300),  # Increase height to accommodate title
     font_size=20,
     line_spacing=10,
     font_path="/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -46,6 +46,9 @@ def create_image_with_text(
 
     for word in words:
         # Test adding the new word to the current line
+        if word in ("-", ",", "."):
+            current_line = current_line.rstrip()
+
         test_line = current_line + word + " "
         bbox = draw.textbbox((0, 0), test_line, font=font)
         line_width = bbox[2] - bbox[0]
@@ -103,7 +106,7 @@ def create_frames(
             last_elapsed_time = word_time_pairs[word_idx][1]
             word_idx += 1
         img = create_image_with_text(
-            current_text.strip(),
+            current_text,
             elapsed_time=current_time
             if word_idx < len(word_time_pairs)
             else last_elapsed_time,
@@ -213,7 +216,7 @@ if __name__ == "__main__":
         help="Path to the output GIF file",
     )
     parser.add_argument(
-        "--font-size", type=int, default=20, help="Font size for the text in the GIF"
+        "--font-size", type=int, default=18, help="Font size for the text in the GIF"
     )
     parser.add_argument(
         "--line-spacing", type=int, default=10, help="Spacing between lines in the GIF"
