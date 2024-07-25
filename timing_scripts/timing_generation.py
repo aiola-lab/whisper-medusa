@@ -86,14 +86,15 @@ def main(whisper_model, audio_file, output_file, arch, max_tokens=100):
             # Record the time taken to generate this token
             token_time = time.time() - start_time
 
+
+
+            token_times.extend(
+                (new_token_id, token_time if i == 0 else token_time + i * 0.0001)
+                for i, new_token_id in enumerate(new_token_ids) if new_token_id != processor.tokenizer.eos_token_id
+            )
             # Break if the model generates the end-of-sequence token
             if new_token_ids[-1] == processor.tokenizer.eos_token_id:
                 break
-
-            token_times.extend(
-                (new_token_id, token_time if i == 0 else token_time + i * 0.001)
-                for i, new_token_id in enumerate(new_token_ids)
-            )
 
     # Decode the generated tokens to text
     generated_text = processor.tokenizer.decode(output_ids, skip_special_tokens=True)
