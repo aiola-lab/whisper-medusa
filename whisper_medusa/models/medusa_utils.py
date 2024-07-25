@@ -19,7 +19,6 @@ class MedusaGenerationConfig(GenerationConfig):
         self.max_steps = kwargs.pop("max_steps", None)
 
 class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
-    # TODO- THIS CLASS WASN'T CHECKED YET FOR MEDUSA!
     r"""
 
     [`LogitsProcessor`] that modifies the logits for the generation of timestamps in the transcription. When the input
@@ -103,7 +102,7 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # suppress <|notimestamps|> which is handled by without_timestamps
         scores[:, :, self.no_timestamps_token_id] = -float("inf")
-
+        num_medusa_heads = scores.shape[1]
         # timestamps have to appear in pairs, except directly before eos_token; mask logits accordingly
         for k in range(input_ids.shape[0]):
             sampled_tokens = input_ids[k, self.begin_index :]
@@ -114,10 +113,9 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
 
             if last_was_timestamp:
                 if penultimate_was_timestamp:  # has to be non-timestamp
-                    scores[k, self.timestamp_begin :] = -float("inf")
+                    scores[k, 0, self.timestamp_begin :] = -float("inf")
                 else:  # cannot be normal text tokens
-                    scores[k, : self.eos_token_id] = -float("inf")
-
+                    scores[k, 0,: self.eos_token_id] = -float("inf")  
             timestamps = sampled_tokens[sampled_tokens.ge(self.timestamp_begin)]
             if timestamps.numel() > 0:
                 # `timestamps` shouldn't decrease; forbid timestamp tokens smaller than the last
@@ -128,23 +126,31 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
                     # Avoid to emit <|0.00|> again
                     timestamp_last = timestamps[-1] + 1
 
-                scores[k, self.timestamp_begin : timestamp_last] = -float("inf")
+                scores[k, :, :self.timestamp_begin : timestamp_last] = -float("inf")
 
         # apply the `max_initial_timestamp` option
         if input_ids.shape[1] == self.begin_index:
-            scores[:, : self.timestamp_begin] = -float("inf")
-
+            scores[:, 0 ,: self.timestamp_begin] = -float("inf")
+            scores[:, 1, self.timestamp_begin:] = -float("inf")
             if self.max_initial_timestamp_index is not None:
                 last_allowed = self.timestamp_begin + self.max_initial_timestamp_index
-                scores[:, last_allowed + 1 :] = -float("inf")
+                scores[:, 0,last_allowed + 1 :] = -float("inf")
 
         # if sum of probability over timestamps is above any other token, sample timestamp
         logprobs = torch.nn.functional.log_softmax(scores.float(), dim=-1)
         for k in range(input_ids.shape[0]):
-            timestamp_logprob = logprobs[k, self.timestamp_begin :].logsumexp(dim=-1)
-            max_text_token_logprob = logprobs[k, : self.timestamp_begin].max()
-            if timestamp_logprob > max_text_token_logprob and self._detect_timestamp_from_logprob:
-                scores[k, : self.timestamp_begin] = -float("inf")
+            medusa_timestamp_logprob = logprobs[k, :,self.timestamp_begin :].logsumexp(dim=-1)
+            medusa_max_text_token_logprob = torch.max(logprobs[k, : ,: self.timestamp_begin],axis=-1).values
+            prev_wav_updated = False
+            for i in range(len(medusa_timestamp_logprob)):
+                timestamp_logprob = medusa_timestamp_logprob[i]
+                max_text_token_logprob = medusa_max_text_token_logprob[i]
+                if (timestamp_logprob > max_text_token_logprob or prev_wav_updated) and self._detect_timestamp_from_logprob:
+                    if prev_wav_updated:
+                        prev_wav_updated = False
+                    else:
+                        prev_wav_updated = True
+                    scores[k, i, : self.timestamp_begin] = -float("inf")
 
         return scores
     
@@ -218,7 +224,6 @@ class MedusaSuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
 
 class MedusaWhisperNoSpeechDetection(LogitsProcessor):
     r"""This processor can be used to detect silence when using Whisper. It should take as input unprocessed logits to follow the original implementation"""
-    # TODO- THIS CLASS WASN'T CHECKED YET FOR MEDUSA!
     def __init__(self, no_speech_token: int, begin_index: int, scores_is_logprobs: bool = False):
         self.no_speech_token = no_speech_token
         # offset between <start-of-transcription> token, <SOT>, in paper and first generated token
@@ -289,7 +294,7 @@ def generate_medusa_buffers(medusa_choices, device="cuda"):
     Returns:
         dict: A dictionary containing several buffer tensors for the Medusa structure.
     """
-    # TODO - notice this assumes that greedy decoding for the original logits!
+    # NOTE - notice this assumes greedy decoding for the original logits!
     medusa_choices = torch.tensor(medusa_choices)
     cumulative_product = torch.cumprod(medusa_choices, dim=0)
     cumulative_sum = torch.cumsum(medusa_choices, dim=0)
@@ -594,6 +599,7 @@ def update_inference_inputs(
     eos_token_id,
     pad_token_id,
     unfinished_sequences,
+    use_base_logits,
 ):
     """
     Update the input sequences and relevant tensors based on the selected best candidate from the inference results.
@@ -619,12 +625,17 @@ def update_inference_inputs(
     """
     # Calculate the starting position for new tokens based on the previous input length
     prev_input_len = input_ids.shape[1]
+    prev_indices = torch.arange(prev_input_len).to(input_ids.device)
     # Map the best candidate indices to the original indices in the sequence
+    selected_tree_indices = retrieve_indices[best_candidate, : accept_length + 1]
     select_indices = (
-        retrieve_indices[best_candidate, : accept_length + 1] + prev_input_len
+        selected_tree_indices + prev_input_len
     )
     # Append the tokens from the best candidate to the input sequence
     next_tokens = candidates[None, best_candidate, : accept_length + 1]
+    if use_base_logits:
+        additional_next_token = torch.argmax(logits[:,0], dim=-1)
+        next_tokens = torch.cat([next_tokens, additional_next_token.unsqueeze(0)], dim=-1)
     # finished sentences should have their next token be a padding token
     if eos_token_id is not None:
         if pad_token_id is None:
@@ -634,7 +645,7 @@ def update_inference_inputs(
     input_ids = torch.cat(
         [input_ids, next_tokens], dim=-1
     )
-    model._update_medusa_outputs(outputs, tree_outputs, select_indices, accept_length)
+    model._update_medusa_outputs(outputs, tree_outputs, select_indices, selected_tree_indices, accept_length, prev_indices, use_base_logits)
 
     # # Update the current length tensor (currently only support batch size is 1)
     # current_length_data.fill_(prev_input_len + tgt.shape[-2])
@@ -642,6 +653,9 @@ def update_inference_inputs(
     # Extract logits and medusa logits for the accepted tokens
     logits = logits[None, best_candidate, accept_length : accept_length + 1]
     # Update the new token counter
-    new_token += accept_length + 1
+    if use_base_logits:
+        new_token += accept_length + 2
+    else:
+        new_token += accept_length + 1
 
     return input_ids, logits, new_token, next_tokens
