@@ -102,12 +102,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--language", type=str, default="en", help="transcribe language"
     )
-    parser.add_argument(
-        "--cuda",
-        type="custom_bool",
-        default=False,
-        help="use CUDA", # TODO- use get_device function
-    )
 
     args = parser.parse_args()
     device = get_device()
