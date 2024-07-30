@@ -28,6 +28,7 @@ def evaluate_model(args):
         args.data_path,
     )
     data = data.fillna("")
+    # TODO- use get_device function
     if args.cuda:
         is_available = torch.cuda.is_available()
         if is_available:
@@ -57,7 +58,7 @@ def evaluate_model(args):
                 input_features,
                 language=args.language,
             )
-            if isinstance(model_output, WhisperMedusaGenerationOutput):
+            if isinstance(model_output, WhisperMedusaGenerationOutput): # TODO - change this to work on both cases
                 count_selected_heads = model_output.count_selected_heads
                 predict_ids = model_output.input_ids[0]
             else:
@@ -80,10 +81,8 @@ def evaluate_model(args):
         {"audio":audio_list, "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
     )
     out_path = os.path.dirname(args.out_file_path)
-    base_filename = os.path.basename(args.out_file_path).replace(".csv", "")
-    wer_filename = os.path.join(out_path, f"{base_filename}_wer_results.csv")
     results.to_csv(
-        wer_filename,
+        out_path,
         index=False
     )
 
@@ -109,19 +108,13 @@ if __name__ == "__main__":
         help="Path to output test data csv file",
     )
     parser.add_argument(
-        "--num-generate-per-file",
-        type=int,
-        default=10,
-        help="How much time to run generate function per file",
-    )
-    parser.add_argument(
         "--language", type=str, default="en", help="transcribe language"
     )
     parser.add_argument(
         "--cuda",
         type="custom_bool",
         default=False,
-        help="use CUDA",
+        help="use CUDA", # TODO- use get_device function
     )
 
     args = parser.parse_args()

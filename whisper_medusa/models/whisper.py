@@ -45,65 +45,7 @@ class WhisperMedusaGenerationOutput:
 class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
     def __init__(self, config, *model_args, **model_kwargs):
         super().__init__(config, *model_args, **model_kwargs)
-        self.freeze_name2func = {
-            "all_but_last": self._freeze_all_but_last,
-            "whisper": self._freeze_all,
-        }
-    def _freeze_lm_head(self):
-        for p in self.proj_out.parameters():
-            p.requires_grad = False
-
-    def _freeze_all(self):
-        # freeze all layers but except lm_head
-        self._freeze_decoder()
-        self._freeze_encoder()
-        self._freeze_lm_head()
-
-    def _freeze_all_but_last(self):
-        # freeze all layers but except lm_head
-        self._freeze_encoder()
-        self._freeze_decoder(freeze_last_layer=False)
-        self._freeze_lm_head()
-
-    def _freeze_decoder(self, freeze_last_layer: bool = True):
-        # Freeze all layers and the last one in medusa model
-        decoder_layers = list(self.model.decoder.children())
-
-        for layer in decoder_layers:
-            if type(layer) == nn.ModuleList:
-                for idx, sub_layer in enumerate(layer):
-                    if not freeze_last_layer and idx == len(layer) - 1:
-                        break
-                    for p in sub_layer.parameters():
-                        p.requires_grad = False
-            else:
-                for p in layer.parameters():
-                    p.requires_grad = False
-
-    def _freeze_decoder(self):
-        decoder_layers = list(self.model.decoder.children())
-
-        # Freeze all layers except the last one
-        for layer in decoder_layers[:-1]:
-            for p in layer.parameters():
-                p.requires_grad = False
-
-    def _freeze_encoder(self):
-        for p in self.model.encoder.parameters():
-            p.requires_grad = False
-
-    def freeze_model_parts(self, parts_to_freeze):
-        if parts_to_freeze is None:
-            return
-
-        if parts_to_freeze not in self.freeze_name2func:
-            raise ValueError(
-                f"parts_to_freeze {parts_to_freeze} is not supported, "
-                f"select from {list(self.freeze_name2func.keys())}"
-            )
-
-        self.freeze_name2func[parts_to_freeze]()
-
+    
     def medusa_forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
@@ -582,8 +524,6 @@ class WhisperMedusaModel(PreTrainedModel):
         self.medusa_choices = medusa_choices
         medusa_topk = medusa_choices[1:]
 
-        medusa_utils.reset_medusa_mode(self) 
-        self.medusa_mask = medusa_buffers["medusa_attn_mask"]
         new_token = 0
         accept_length_list = []
         with torch.inference_mode():
@@ -696,10 +636,7 @@ class WhisperMedusaModel(PreTrainedModel):
 
         if streamer is not None:
             streamer.end()
-        # print("accept_length", accept_length_list)
-        # print("total_proc_time", total_proc_time)
-        # print("total_proc_time_list len ", len(total_proc_time_list))
-
+            
         if return_dict_in_generate:
             if self.config.is_encoder_decoder:
                 return GenerateEncoderDecoderOutput(
@@ -1073,9 +1010,6 @@ class WhisperMedusaModel(PreTrainedModel):
 
         return logits_processor
     
-    def freeze_model_parts(self, parts_to_freeze):
-        self.whisper_model.freeze_model_parts(parts_to_freeze)
-
     def forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
@@ -1124,14 +1058,12 @@ class WhisperMedusaModel(PreTrainedModel):
             for i in range(len(self.medusa_heads)):
                 head_out = self.medusa_heads[i](hidden_states)
                 head_proj = self.whisper_model.proj_out(head_out)
-                if i == 0:
-                    base_logits = head_proj
                 medusa_logits.append(head_proj)  
                 if disable_medusa:
                     break
                       
         else:
-            raise Exception("medusa_heads_type not supported")
+            raise Exception(f"{self.config.medusa_heads_type } not supported")
       
 
         stack_heads_logits = torch.stack(medusa_logits, dim=0)
@@ -1195,9 +1127,7 @@ class WhisperMedusaModel(PreTrainedModel):
             generation_config = copy.deepcopy(self.generation_config)
         else:
             generation_config = copy.deepcopy(generation_config)
-            
-
-
+    
         # 2. set global generate variables
         input_stride = self.whisper_model.model.encoder.conv1.stride[0] * self.whisper_model.model.encoder.conv2.stride[0]
         num_segment_frames = input_stride * self.config.max_source_positions

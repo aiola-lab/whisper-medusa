@@ -392,17 +392,6 @@ def generate_medusa_buffers(medusa_choices, device="cuda"):
     }
     return ret
 
-def reset_medusa_mode(
-    model,
-):
-    """
-    Resets the Medusa settings 
-    Clears the Medusa attention mask in the base model.
-
-    """
-    model.base_model.medusa_mask = None
-    model.base_model.medusa_mode = None
-
 
 def reset_past_key_values(passed_key_values):
     """
