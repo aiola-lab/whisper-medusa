@@ -63,3 +63,9 @@ def str_int_list(s):
             return new_s[0]
         else:
             return new_s
+
+
+def get_device(gpu_id="0"):
+    return torch.device(
+        f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    )

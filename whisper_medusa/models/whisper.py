@@ -34,11 +34,11 @@ import inspect
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
-from transformers.models.whisper.modeling_whisper import WhisperDecoderLayer, shift_tokens_right
+from transformers.models.whisper.modeling_whisper import shift_tokens_right
 
 @dataclass
 class WhisperMedusaGenerationOutput:
-    input_ids: torch.Tensor
+    sequences: torch.Tensor
     count_selected_heads: Dict[str, int]
 
 
@@ -661,7 +661,7 @@ class WhisperMedusaModel(PreTrainedModel):
                 )
         else:
             return WhisperMedusaGenerationOutput(
-                input_ids=input_ids,
+                sequences=input_ids,
                 count_selected_heads=dict(
                     sorted(
                         Counter(accept_length_list).items()

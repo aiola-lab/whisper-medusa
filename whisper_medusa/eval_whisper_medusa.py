@@ -8,7 +8,7 @@ import torch
 import torchaudio
 
 from whisper_medusa.models.whisper import WhisperMedusaModel, WhisperMedusaGenerationOutput
-from whisper_medusa.utils.utils import str2bool
+from whisper_medusa.utils.utils import str2bool, set_logger, get_device
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from whisper_medusa.utils.metrics import compute_wer, compute_cer
 from tqdm import tqdm
@@ -16,27 +16,18 @@ import os
 import numpy as np
 warnings.filterwarnings("ignore")
 
-SR = 16000
-def evaluate_model(args):
-
+SAMPLING_RATE = 16000
+def evaluate_model(args, device):
+    data = pd.read_csv(
+        args.data_path,
+    )
+    data = data.fillna("")
 
     processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
     model = WhisperMedusaModel.from_pretrained(
         args.whisper_model_name,
     )
-    data = pd.read_csv(
-        args.data_path,
-    )
-    data = data.fillna("")
-    # TODO- use get_device function
-    if args.cuda:
-        is_available = torch.cuda.is_available()
-        if is_available:
-            device = torch.device("cuda")
-        else:
-            device = torch.device("cpu")
-    else:
-        device = torch.device("cpu")
+
     model = model.to(device)
     preds = []
     gts = []
@@ -45,12 +36,12 @@ def evaluate_model(args):
     with torch.no_grad():
         for i, row in tqdm(data.iterrows(), total=len(data)):
             input_speech, sr = torchaudio.load(row.audio)
-            if sr != SR:
-                input_speech = torchaudio.transforms.Resample(sr, SR)(input_speech)
+            if sr != SAMPLING_RATE:
+                input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(input_speech)
             input_features = processor(
                 input_speech.squeeze(),
                 return_tensors="pt",
-                sampling_rate=SR, 
+                sampling_rate=SAMPLING_RATE,
             ).input_features
             input_features = input_features.to(device)
 
@@ -60,10 +51,11 @@ def evaluate_model(args):
             )
             if isinstance(model_output, WhisperMedusaGenerationOutput): # TODO - change this to work on both cases
                 count_selected_heads = model_output.count_selected_heads
-                predict_ids = model_output.input_ids[0]
+                predict_ids = model_output.sequences[0]
             else:
                 count_selected_heads = {} # regular whisper model
                 predict_ids = model_output[0]
+
             pred = processor.decode(predict_ids, skip_special_tokens=True)
             preds.append(pred)
             gts.append(row.sentence)
@@ -118,5 +110,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO)
-    evaluate_model(args)
+    device = get_device()
+    set_logger()
+    evaluate_model(args, device)
