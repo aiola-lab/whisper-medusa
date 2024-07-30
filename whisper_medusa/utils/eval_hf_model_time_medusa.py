@@ -16,41 +16,18 @@ import os
 import numpy as np
 warnings.filterwarnings("ignore")
 
-architecture2module = {
-    "WhisperForConditionalGeneration": WhisperForConditionalGeneration,
-    "WhisperMedusaModel": WhisperMedusaModel,
-}
-
-
+SR = 16000
 def evaluate_model(args):
 
-    if os.path.exists(args.whisper_model_name):
-        config = json.load(open(args.whisper_model_name + "/config.json"))
-        suppress_ids = config.get("suppress_ids", [-1])
 
-        model_module = architecture2module.get(config["architectures"][0], None)
-        if model_module is None:
-            raise ValueError(
-                f"Unsupported architecture: {config['architecture'][0]}, select from {architecture2module.keys()}"
-            )
-
-        processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
-        model = model_module.from_pretrained(
-            args.whisper_model_name,
-        )
-    else:
-        processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
-        model = WhisperForConditionalGeneration.from_pretrained(
-            args.whisper_model_name,
-        )  
-        suppress_ids = [-1]
-
+    processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
+    model = WhisperMedusaModel.from_pretrained(
+        args.whisper_model_name,
+    )
     data = pd.read_csv(
         args.data_path,
     )
     data = data.fillna("")
-
-    logging.info(f"Using prompts: {args.use_prompts}")
     if args.cuda:
         is_available = torch.cuda.is_available()
         if is_available:
@@ -62,26 +39,23 @@ def evaluate_model(args):
     model = model.to(device)
     preds = []
     gts = []
-    data_list = []
     lang_list = []
+    audio_list = []
     with torch.no_grad():
         for i, row in tqdm(data.iterrows(), total=len(data)):
-            prompt_ids = (
-                processor.get_prompt_ids(row.prompt) if args.use_prompts else None
-            )
             input_speech, sr = torchaudio.load(row.audio)
+            if sr != SR:
+                input_speech = torchaudio.transforms.Resample(sr, SR)(input_speech)
             input_features = processor(
                 input_speech.squeeze(),
                 return_tensors="pt",
-                sampling_rate=16000,  # dtype=torch.float16
+                sampling_rate=SR, 
             ).input_features
             input_features = input_features.to(device)
 
             model_output = model.generate(
                 input_features,
-                prompt_ids=prompt_ids,
                 language=args.language,
-                # suppress_tokens=suppress_ids,
             )
             if isinstance(model_output, WhisperMedusaGenerationOutput):
                 count_selected_heads = model_output.count_selected_heads
@@ -93,6 +67,7 @@ def evaluate_model(args):
             preds.append(pred)
             gts.append(row.sentence)
             lang_list.append(args.language)
+            audio_list.append(row.audio)
             
     wer, wers = compute_wer(preds, gts)
     cer, cers = compute_cer(preds, gts)
@@ -102,7 +77,7 @@ def evaluate_model(args):
     logging.info(f"=======================")
 
     results = pd.DataFrame(
-        {"audio":[i[0] for i in data_list], "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
+        {"audio":audio_list, "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
     )
     out_path = os.path.dirname(args.out_file_path)
     base_filename = os.path.basename(args.out_file_path).replace(".csv", "")
@@ -124,13 +99,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data-path",
         type=str,
-        default="/home/ec2-user/datasets/metro/training_data_files/30-10-2023_19-11-2023/test.csv",
+        required=True,
         help="Path to test data csv file",
     )
     parser.add_argument(
         "--out-file-path",
         type=str,
-        default="/home/ec2-user/workspaces/projects/faster-whisper/medusa_speed_cuda.csv",
+        required=True,
         help="Path to output test data csv file",
     )
     parser.add_argument(
@@ -139,10 +114,6 @@ if __name__ == "__main__":
         default=10,
         help="How much time to run generate function per file",
     )
-    parser.add_argument(
-        "--use-prompts", type=str2bool, default=False, help="Whether to use prompts"
-    )
-
     parser.add_argument(
         "--language", type=str, default="en", help="transcribe language"
     )

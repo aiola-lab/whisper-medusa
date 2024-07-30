@@ -598,6 +598,7 @@ def update_inference_inputs(
     eos_token_id,
     pad_token_id,
     unfinished_sequences,
+    use_base_logits,
 ):
     """
     Update the input sequences and relevant tensors based on the selected best candidate from the inference results.
@@ -631,6 +632,9 @@ def update_inference_inputs(
     )
     # Append the tokens from the best candidate to the input sequence
     next_tokens = candidates[None, best_candidate, : accept_length + 1]
+    if use_base_logits:
+        additional_next_token = torch.argmax(logits[:,0], dim=-1)
+        next_tokens = torch.cat([next_tokens, additional_next_token.unsqueeze(0)], dim=-1)
     # finished sentences should have their next token be a padding token
     if eos_token_id is not None:
         if pad_token_id is None:
@@ -640,14 +644,14 @@ def update_inference_inputs(
     input_ids = torch.cat(
         [input_ids, next_tokens], dim=-1
     )
-    model._update_medusa_outputs(outputs, tree_outputs, select_indices, selected_tree_indices, accept_length, prev_indices)
-
-    # # Update the current length tensor (currently only support batch size is 1)
-    # current_length_data.fill_(prev_input_len + tgt.shape[-2])
+    model._update_medusa_outputs(outputs, tree_outputs, select_indices, selected_tree_indices, accept_length, prev_indices, use_base_logits)
 
     # Extract logits and medusa logits for the accepted tokens
     logits = logits[None, best_candidate, accept_length : accept_length + 1]
     # Update the new token counter
-    new_token += accept_length + 1
+    if use_base_logits:
+        new_token += accept_length + 2
+    else:
+        new_token += accept_length + 1
 
     return input_ids, logits, new_token, next_tokens

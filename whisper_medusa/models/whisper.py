@@ -46,20 +46,12 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
     def __init__(self, config, *model_args, **model_kwargs):
         super().__init__(config, *model_args, **model_kwargs)
         self.freeze_name2func = {
-            "encoder": self._freeze_encoder,
-            "encoder_attn": self._freeze_encoder_and_cross_attn,
-            "decoder": self._freeze_decoder,
-            "all_but_lm": self.freeze_all_but_lm_head,
-            "all": self._freeze_all,
             "all_but_last": self._freeze_all_but_last,
+            "whisper": self._freeze_all,
         }
     def _freeze_lm_head(self):
         for p in self.proj_out.parameters():
             p.requires_grad = False
-
-    def freeze_all_but_lm_head(self):
-        self._freeze_encoder()
-        self._freeze_decoder()
 
     def _freeze_all(self):
         # freeze all layers but except lm_head
@@ -88,11 +80,6 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
                 for p in layer.parameters():
                     p.requires_grad = False
 
-    def _freeze_cross_attn(self):
-        for layer in self.model.decoder.layers:
-            for p in layer.encoder_attn.parameters():
-                p.requires_grad = False
-
     def _freeze_decoder(self):
         decoder_layers = list(self.model.decoder.children())
 
@@ -105,10 +92,6 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
         for p in self.model.encoder.parameters():
             p.requires_grad = False
 
-    def _freeze_encoder_and_cross_attn(self):
-        self._freeze_cross_attn()
-        self._freeze_encoder()
-
     def freeze_model_parts(self, parts_to_freeze):
         if parts_to_freeze is None:
             return
@@ -120,6 +103,7 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
             )
 
         self.freeze_name2func[parts_to_freeze]()
+
     def medusa_forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
@@ -236,27 +220,25 @@ class WhisperMedusaModel(PreTrainedModel):
         super().__init__(config)
   
         self.whisper_model = Whisper2MedusaHeadsConditionalGeneration.from_pretrained(config.whisper_model_name)
-        if self.config.medusa_heads_type  == "whisper_block":
-            self.medusa_block = WhisperDecoderLayer(self.whisper_model.config)
-            self.medusa_block.load_state_dict(self.whisper_model.model.decoder.layers[-1].state_dict()) # load the last layer of the whisper model
+        if self.config.medusa_heads_type == "base_head":
             self.medusa_heads = nn.ModuleList()
-            for _ in range(self.config.medusa_num_heads):
+            for _ in range(self.config.medusa_num_heads + 1):  # create head to time "0"
                 head_list = []
                 for _ in range(self.config.medusa_num_layers):
-                    head_list.append(MedusaResBlock(self.config.d_model, self.config.medusa_hidden_size))
+                    head_list.append(
+                        MedusaResBlock(
+                            self.config.d_model, self.config.medusa_hidden_size
+                        )
+                    )
                 self.medusa_heads.append(nn.Sequential(*head_list))
-
-        self.whisper_model.freeze_name2func.update({"whisper": self._freeze_whisper})
+        else:
+            raise NotImplementedError("Only base_head is supported for medusa_heads_type")
         self.update_generation_config(self.config)
-    
 
     def update_generation_config(self, config):
         generation_config_dict = self.whisper_model.generation_config.to_dict()
         self.generation_config = medusa_utils.MedusaGenerationConfig(**generation_config_dict)
         self.generation_config.update(**config.to_dict())
-
-    def _freeze_whisper(self):
-        self.whisper_model._freeze_all()
 
     @classmethod
     def from_pretrained(
@@ -357,6 +339,7 @@ class WhisperMedusaModel(PreTrainedModel):
         selected_tree_indices: torch.Tensor,
         accept_length: torch.Tensor,
         prev_indices: torch.Tensor,
+        use_base_logits: bool = False,
     ):
         if getattr(outputs, 'decoder_attentions', None) is not None:
             prev_and_accept = torch.cat([prev_indices, select_indices], dim=0)
@@ -404,13 +387,15 @@ class WhisperMedusaModel(PreTrainedModel):
                 layer_past_key_values_tuple = ()
                 for j in range(2): # loop over attention key and value
                     tree_past = layer_tree_past_key_values[j][:, :, select_indices, :]
-                    tree_past = tree_past[:, :, :accept_length, :]
+                    if use_base_logits:
+                        tree_past = tree_past[:, :, :accept_length+1, :]
+                    else:
+                        tree_past = tree_past[:, :, :accept_length, :]
                     orig_past = layer_orig_past_key_values[j]
                     layer_past_key_values_tuple += (torch.cat([orig_past, tree_past], dim=2),)
                 layer_past_key_values_tuple += (layer_orig_past_key_values[2], layer_orig_past_key_values[3])
                 all_past_key_values_tuple += (layer_past_key_values_tuple,)
             tree_outputs.past_key_values = all_past_key_values_tuple
-
 
     def _medusa_greedy_search(
         self,
@@ -645,9 +630,12 @@ class WhisperMedusaModel(PreTrainedModel):
                 )
 
                 accept_length_list.append(accept_length.item())
+                if accept_length.item() == 0:
+                    use_base_logits = True
+                else:
+                    use_base_logits = False
 
                 # Update the input_ids and logits
-
                 input_ids, next_token_logits, new_token, next_tokens = medusa_utils.update_inference_inputs(
                     self,
                     input_ids,
@@ -662,6 +650,7 @@ class WhisperMedusaModel(PreTrainedModel):
                     eos_token_id,
                     pad_token_id,
                     unfinished_sequences,
+                    use_base_logits
                 )
                 # Store scores, attentions and hidden_states when required
                 if return_dict_in_generate:
@@ -684,9 +673,15 @@ class WhisperMedusaModel(PreTrainedModel):
                         )
                 if streamer is not None:
                     streamer.put(next_tokens.cpu())
+                    
+                if use_base_logits:
+                    len2use = accept_length.item() + 2
+                else:
+                    len2use = accept_length.item() + 1
+
                 model_kwargs = self._update_model_kwargs_for_medusa_generation(
                     tree_outputs,
-                    accept_length.item()+1,
+                    len2use,
                     model_kwargs,
                     is_encoder_decoder=self.config.is_encoder_decoder,
                 )
@@ -1136,59 +1131,8 @@ class WhisperMedusaModel(PreTrainedModel):
                     break
                       
         else:
-            base_logits = self.whisper_model.proj_out(hidden_states)
-            medusa_logits.append(base_logits)
-            if not disable_medusa:
-                if self.config.medusa_heads_type == "whisper_block":
-                    use_cache = use_cache if use_cache is not None else self.config.use_cache
-                    past_key_value = past_key_values[-1] if past_key_values is not None else None 
-                    medusa_block_decoder_outputs = self.medusa_block(
-                        whisper_model_outputs.last_hidden_state,
-                        attention_mask=attention_mask,
-                        encoder_hidden_states=whisper_model_outputs.encoder_last_hidden_state,
-                        layer_head_mask=(head_mask[-1] if head_mask is not None else None),
-                        cross_attn_layer_head_mask=(cross_attn_head_mask[-1] if cross_attn_head_mask is not None else None ),
-                        past_key_value=past_key_value,
-                        output_attentions=output_attentions,
-                        use_cache=use_cache,
-                                )
-                    if use_cache:
-                        whisper_model_outputs.past_key_values += (medusa_block_decoder_outputs[3 if output_attentions else 1],)
-
-                    if output_attentions:
-                        whisper_model_outputs.decoder_attentions += (medusa_block_decoder_outputs[1],)
-
-                        if whisper_model_outputs.encoder_last_hidden_state is not None:
-                            whisper_model_outputs.cross_attentions += (medusa_block_decoder_outputs[2],)
-
-                    for i in range(len(self.medusa_heads)):
-                        head_out = self.medusa_heads[i](medusa_block_decoder_outputs[0])
-                        head_proj = self.whisper_model.proj_out(head_out)
-                        medusa_logits.append(head_proj)
-                else:
-                    raise ValueError("Invalid medusa_heads_type")
-            else:
-                if self.config.medusa_heads_type == "whisper_block":
-                    use_cache = use_cache if use_cache is not None else self.config.use_cache
-                    past_key_value = past_key_values[-1] if past_key_values is not None else None 
-                    medusa_block_decoder_outputs = self.medusa_block(
-                        whisper_model_outputs.last_hidden_state,
-                        attention_mask=attention_mask,
-                        encoder_hidden_states=whisper_model_outputs.encoder_last_hidden_state,
-                        layer_head_mask=(head_mask[-1] if head_mask is not None else None),
-                        cross_attn_layer_head_mask=(cross_attn_head_mask[-1] if cross_attn_head_mask is not None else None ),
-                        past_key_value=past_key_value,
-                        output_attentions=output_attentions,
-                        use_cache=use_cache,
-                                )
-                    if use_cache:
-                        whisper_model_outputs.past_key_values += (medusa_block_decoder_outputs[3 if output_attentions else 1],)
-
-                    if output_attentions:
-                        whisper_model_outputs.decoder_attentions += (medusa_block_decoder_outputs[1],)
-
-                        if whisper_model_outputs.encoder_last_hidden_state is not None:
-                            whisper_model_outputs.cross_attentions += (medusa_block_decoder_outputs[2],)
+            raise Exception("medusa_heads_type not supported")
+      
 
         stack_heads_logits = torch.stack(medusa_logits, dim=0)
 

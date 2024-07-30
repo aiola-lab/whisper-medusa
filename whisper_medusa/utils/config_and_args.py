@@ -27,11 +27,8 @@ class MedusaConfig(WhisperConfig):
         medusa_hidden_size: int = 1280,
         whisper_model_name: str = "openai/whisper-large-v2",
         medusa_choices: List[int] = [1,1,1,1,1], 
-        init_from_proj: bool = True,
-        medusa_heads_type: str = "linear",
+        medusa_heads_type: str = "base_head",
         medusa_loss_on_original: bool = False,
-        medusa_kl_loss: bool = False,
-        medusa_kl_weight: float = 0,
         **kwargs,
     ):
         config = AutoConfig.from_pretrained(whisper_model_name)
@@ -40,10 +37,7 @@ class MedusaConfig(WhisperConfig):
         self.whisper_model_name = whisper_model_name
         self.medusa_hidden_size = medusa_hidden_size
         self.medusa_choices = medusa_choices
-        self.init_from_proj = init_from_proj
         self.medusa_heads_type = medusa_heads_type
         self.medusa_loss_on_original = medusa_loss_on_original
-        self.medusa_kl_loss = medusa_kl_loss
-        self.medusa_kl_weight = medusa_kl_weight
         super().__init__(**config.to_dict(),**kwargs)
 
