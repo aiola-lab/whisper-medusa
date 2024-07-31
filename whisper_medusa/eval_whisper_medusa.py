@@ -23,16 +23,17 @@ def evaluate_model(args, device):
     )
     data = data.fillna("")
 
-    processor = WhisperProcessor.from_pretrained(args.whisper_model_name)
+    processor = WhisperProcessor.from_pretrained(args.model_name)
     model = WhisperMedusaModel.from_pretrained(
-        args.whisper_model_name,
+        args.model_name,
     )
-
     model = model.to(device)
+
     preds = []
     gts = []
     lang_list = []
     audio_list = []
+
     with torch.no_grad():
         for i, row in tqdm(data.iterrows(), total=len(data)):
             input_speech, sr = torchaudio.load(row.audio)
@@ -53,7 +54,7 @@ def evaluate_model(args, device):
                 count_selected_heads = model_output.count_selected_heads
                 predict_ids = model_output.sequences[0]
             else:
-                count_selected_heads = {} # regular whisper model
+                count_selected_heads = {}  # regular whisper model
                 predict_ids = model_output[0]
 
             pred = processor.decode(predict_ids, skip_special_tokens=True)
@@ -70,7 +71,7 @@ def evaluate_model(args, device):
     logging.info(f"=======================")
 
     results = pd.DataFrame(
-        {"audio":audio_list, "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
+        {"audio": audio_list, "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
     )
     out_path = os.path.dirname(args.out_file_path)
     results.to_csv(
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.register("type", "custom_bool", str2bool)
     parser.add_argument(
-        "--whisper-model-name",
+        "--model-name",
         type=str,
         required=True,
         help="Path to trained Whisper model",
