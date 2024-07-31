@@ -1,6 +1,5 @@
 from collections import Counter
 from typing import Optional, Tuple, Union, Callable, List, TYPE_CHECKING, Dict, Any
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -35,11 +34,6 @@ if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
 from transformers.models.whisper.modeling_whisper import shift_tokens_right
-
-@dataclass
-class WhisperMedusaGenerationOutput:
-    sequences: torch.Tensor
-    count_selected_heads: Dict[str, int]
 
 
 class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
@@ -660,14 +654,7 @@ class WhisperMedusaModel(PreTrainedModel):
                     past_key_values=model_kwargs.get("past_key_values"),
                 )
         else:
-            return WhisperMedusaGenerationOutput(
-                sequences=input_ids,
-                count_selected_heads=dict(
-                    sorted(
-                        Counter(accept_length_list).items()
-                    )
-                ),
-            )
+            return input_ids 
 
     def _multi_heads_generate(
         self,
