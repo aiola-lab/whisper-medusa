@@ -1,40 +1,36 @@
-from collections import Counter
-from typing import Optional, Tuple, Union, Callable, List, TYPE_CHECKING, Dict, Any
-
-import torch
-import torch.nn as nn
-from transformers import WhisperForConditionalGeneration
-from transformers.modeling_outputs import Seq2SeqLMOutput
-from transformers import PreTrainedModel
-from transformers import AutoConfig
+import copy
+import inspect
 import os
 import warnings
-import copy
-from transformers.generation.configuration_utils import GenerationConfig, GenerationMode
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-)
+from collections import Counter
+from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple,
+                    Union)
 
-from transformers.generation.utils import (
-    GenerateOutput,
-    logger,
-    NEED_SETUP_CACHE_CLASSES_MAPPING,
-    GenerateNonBeamOutput,
-    GenerateEncoderDecoderOutput,
-    GenerateDecoderOnlyOutput,
-)
-from transformers.utils import ModelOutput
-from transformers.generation.stopping_criteria import StoppingCriteriaList
-from transformers.integrations import is_deepspeed_zero3_enabled
-import whisper_medusa.models.medusa_utils as medusa_utils
+import torch
 import torch.distributed as dist
-import inspect
+import torch.nn as nn
+from transformers import (AutoConfig, PreTrainedModel,
+                          WhisperForConditionalGeneration)
+from transformers.generation.configuration_utils import (GenerationConfig,
+                                                         GenerationMode)
+from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.generation.utils import (NEED_SETUP_CACHE_CLASSES_MAPPING,
+                                           GenerateDecoderOnlyOutput,
+                                           GenerateEncoderDecoderOutput,
+                                           GenerateNonBeamOutput,
+                                           GenerateOutput, logger)
+from transformers.integrations import is_deepspeed_zero3_enabled
+from transformers.modeling_outputs import Seq2SeqLMOutput
+from transformers.utils import ModelOutput
 
+import whisper_medusa.models.medusa_utils as medusa_utils
 from whisper_medusa.utils.config_and_args import MedusaConfig
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
+
 from transformers.models.whisper.modeling_whisper import shift_tokens_right
 
 

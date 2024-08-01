@@ -2,14 +2,13 @@
 Some of the following code is a snippet with changes from https://github.com/FasterDecoding/Medusa/blob/e2a5d20c048a9b0a4092e6933c34313687422518/medusa/model/utils_legacy.py
 """
 
-import torch
 from typing import Callable, Iterator, List, Optional, Tuple, Union
-from transformers.generation.logits_process import (
-    LogitsProcessor,
-    LOGITS_PROCESSOR_INPUTS_DOCSTRING,
-)
-from transformers.utils import add_start_docstrings
+
+import torch
 from transformers.generation import GenerationConfig
+from transformers.generation.logits_process import (
+    LOGITS_PROCESSOR_INPUTS_DOCSTRING, LogitsProcessor)
+from transformers.utils import add_start_docstrings
 
 
 class MedusaGenerationConfig(GenerationConfig):

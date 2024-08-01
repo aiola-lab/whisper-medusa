@@ -1,18 +1,17 @@
 import argparse
 import logging
+import os
 import warnings
-
 
 import pandas as pd
 import torch
 import torchaudio
+from tqdm import tqdm
+from transformers import WhisperProcessor
 
 from whisper_medusa.models import WhisperMedusaModel
-from whisper_medusa.utils.utils import str2bool, set_logger, get_device
-from transformers import WhisperProcessor
-from whisper_medusa.utils.metrics import compute_wer, compute_cer
-from tqdm import tqdm
-import os
+from whisper_medusa.utils.metrics import compute_cer, compute_wer
+from whisper_medusa.utils.utils import get_device, set_logger, str2bool
 
 warnings.filterwarnings("ignore")
 

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import List
 
-from transformers.models.whisper import WhisperConfig
 from transformers import AutoConfig
+from transformers.models.whisper import WhisperConfig
 
 
 @dataclass
