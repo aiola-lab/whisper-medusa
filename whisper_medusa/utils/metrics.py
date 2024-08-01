@@ -19,8 +19,7 @@ def compute_wer(predictions, references):
     incorrect = 0
     total = 0
     wers = []
-    for prediction, reference in zip(predictions, references): 
-
+    for prediction, reference in zip(predictions, references):
         if not wer_standardize(reference)[0]:
             reference = "EMPTY"
         if not wer_standardize(prediction)[0]:

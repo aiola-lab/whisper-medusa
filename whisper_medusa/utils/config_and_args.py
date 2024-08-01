@@ -1,9 +1,9 @@
-
 from dataclasses import dataclass
 from typing import List
 
-from  transformers.models.whisper import WhisperConfig
+from transformers.models.whisper import WhisperConfig
 from transformers import AutoConfig
+
 
 @dataclass
 class MedusaConfig(WhisperConfig):
@@ -26,7 +26,7 @@ class MedusaConfig(WhisperConfig):
         medusa_num_layers: int = 1,
         medusa_hidden_size: int = 1280,
         whisper_model_name: str = "openai/whisper-large-v2",
-        medusa_choices: List[int] = [1,1,1,1,1], 
+        medusa_choices: List[int] = [1, 1, 1, 1, 1],
         medusa_heads_type: str = "base_head",
         medusa_loss_on_original: bool = False,
         **kwargs,
@@ -39,5 +39,4 @@ class MedusaConfig(WhisperConfig):
         self.medusa_choices = medusa_choices
         self.medusa_heads_type = medusa_heads_type
         self.medusa_loss_on_original = medusa_loss_on_original
-        super().__init__(**config.to_dict(),**kwargs)
-
+        super().__init__(**config.to_dict(), **kwargs)

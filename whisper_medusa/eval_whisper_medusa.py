@@ -13,9 +13,12 @@ from transformers import WhisperProcessor
 from whisper_medusa.utils.metrics import compute_wer, compute_cer
 from tqdm import tqdm
 import os
+
 warnings.filterwarnings("ignore")
 
 SAMPLING_RATE = 16000
+
+
 def evaluate_model(args, device):
     data = pd.read_csv(
         args.data_path,
@@ -37,7 +40,9 @@ def evaluate_model(args, device):
         for i, row in tqdm(data.iterrows(), total=len(data)):
             input_speech, sr = torchaudio.load(row.audio)
             if sr != SAMPLING_RATE:
-                input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(input_speech)
+                input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(
+                    input_speech
+                )
             input_features = processor(
                 input_speech.squeeze(),
                 return_tensors="pt",
@@ -57,7 +62,7 @@ def evaluate_model(args, device):
             gts.append(row.sentence)
             lang_list.append(args.language)
             audio_list.append(row.audio)
-            
+
     wer, wers = compute_wer(preds, gts)
     cer, cers = compute_cer(preds, gts)
     logging.info(f"=======================")
@@ -66,13 +71,18 @@ def evaluate_model(args, device):
     logging.info(f"=======================")
 
     results = pd.DataFrame(
-        {"audio": audio_list, "label": gts, "prediction": preds, "wer": wers, "cer": cers, "language": lang_list}
+        {
+            "audio": audio_list,
+            "label": gts,
+            "prediction": preds,
+            "wer": wers,
+            "cer": cers,
+            "language": lang_list,
+        }
     )
     out_path = os.path.dirname(args.out_file_path)
-    results.to_csv(
-        out_path,
-        index=False
-    )
+    results.to_csv(out_path, index=False)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -16,17 +16,17 @@ from transformers.generation.logits_process import (
 )
 
 from transformers.generation.utils import (
-    GenerateOutput, 
-    logger, 
-    NEED_SETUP_CACHE_CLASSES_MAPPING, 
-    GenerateNonBeamOutput, 
+    GenerateOutput,
+    logger,
+    NEED_SETUP_CACHE_CLASSES_MAPPING,
+    GenerateNonBeamOutput,
     GenerateEncoderDecoderOutput,
     GenerateDecoderOnlyOutput,
 )
 from transformers.utils import ModelOutput
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.integrations import is_deepspeed_zero3_enabled
-import whisper_medusa.models.medusa_utils  as medusa_utils
+import whisper_medusa.models.medusa_utils as medusa_utils
 import torch.distributed as dist
 import inspect
 
@@ -41,7 +41,7 @@ from transformers.models.whisper.modeling_whisper import shift_tokens_right
 class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
     def __init__(self, config, *model_args, **model_kwargs):
         super().__init__(config, *model_args, **model_kwargs)
-    
+
     def medusa_forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
@@ -60,7 +60,7 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        **kwargs
+        **kwargs,
     ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -91,7 +91,9 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
         >>> transcription
         ' Mr. Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.'
         ```"""
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
         if labels is not None:
             if decoder_input_ids is None and decoder_inputs_embeds is None:
@@ -116,9 +118,10 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        
+
         return outputs
-  
+
+
 class MedusaResBlock(nn.Module):
     """
     A Medusa Residual Block module.
@@ -150,14 +153,16 @@ class MedusaResBlock(nn.Module):
             torch.Tensor: Output after the residual connection and activation.
         """
         return x + self.act(self.linear(x))
-     
+
+
 class WhisperMedusaModel(PreTrainedModel):
-    
     def __init__(self, config):
         # super(WhisperMedusaModel, self).__init__()
         super().__init__(config)
-  
-        self.whisper_model = Whisper2MedusaHeadsConditionalGeneration.from_pretrained(config.whisper_model_name)
+
+        self.whisper_model = Whisper2MedusaHeadsConditionalGeneration.from_pretrained(
+            config.whisper_model_name
+        )
         if self.config.medusa_heads_type == "base_head":
             self.medusa_heads = nn.ModuleList()
             for _ in range(self.config.medusa_num_heads + 1):  # create head to time "0"
@@ -170,12 +175,16 @@ class WhisperMedusaModel(PreTrainedModel):
                     )
                 self.medusa_heads.append(nn.Sequential(*head_list))
         else:
-            raise NotImplementedError("Only base_head is supported for medusa_heads_type")
+            raise NotImplementedError(
+                "Only base_head is supported for medusa_heads_type"
+            )
         self.update_generation_config(self.config)
 
     def update_generation_config(self, config):
         generation_config_dict = self.whisper_model.generation_config.to_dict()
-        self.generation_config = medusa_utils.MedusaGenerationConfig(**generation_config_dict)
+        self.generation_config = medusa_utils.MedusaGenerationConfig(
+            **generation_config_dict
+        )
         self.generation_config.update(**config.to_dict())
 
     @classmethod
@@ -196,7 +205,11 @@ class WhisperMedusaModel(PreTrainedModel):
         )
         if model.can_generate() and pretrained_model_name_or_path is not None:
             try:
-                model.generation_config = medusa_utils.MedusaGenerationConfig.from_pretrained(pretrained_model_name_or_path)
+                model.generation_config = (
+                    medusa_utils.MedusaGenerationConfig.from_pretrained(
+                        pretrained_model_name_or_path
+                    )
+                )
             except OSError:
                 logger.info(
                     "Generation config file not found, using a generation config created from the model config."
@@ -205,7 +218,7 @@ class WhisperMedusaModel(PreTrainedModel):
         return model
 
     def get_medusa_choice(self):
-        return self.config.medusa_choices 
+        return self.config.medusa_choices
 
     def prepare_inputs_for_medusa_tree_generation(
         self,
@@ -237,7 +250,9 @@ class WhisperMedusaModel(PreTrainedModel):
         standardize_cache_format: bool = False,
     ) -> Dict[str, Any]:
         # update past_key_values
-        model_kwargs["past_key_values"] = self.whisper_model._extract_past_from_model_output(
+        model_kwargs[
+            "past_key_values"
+        ] = self.whisper_model._extract_past_from_model_output(
             outputs, standardize_cache_format=standardize_cache_format
         )
         if getattr(outputs, "state", None) is not None:
@@ -246,26 +261,42 @@ class WhisperMedusaModel(PreTrainedModel):
         # update token_type_ids with last value
         if "token_type_ids" in model_kwargs:
             token_type_ids = model_kwargs["token_type_ids"]
-            model_kwargs["token_type_ids"] = torch.cat([token_type_ids, token_type_ids[:, -1].unsqueeze(-1)], dim=-1)
+            model_kwargs["token_type_ids"] = torch.cat(
+                [token_type_ids, token_type_ids[:, -1].unsqueeze(-1)], dim=-1
+            )
 
         if not is_encoder_decoder:
             # update attention mask
             if "attention_mask" in model_kwargs:
                 attention_mask = model_kwargs["attention_mask"]
                 model_kwargs["attention_mask"] = torch.cat(
-                    [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
+                    [
+                        attention_mask,
+                        attention_mask.new_ones((attention_mask.shape[0], 1)),
+                    ],
+                    dim=-1,
                 )
         else:
             # update decoder attention mask
             if "decoder_attention_mask" in model_kwargs:
                 decoder_attention_mask = model_kwargs["decoder_attention_mask"]
                 model_kwargs["decoder_attention_mask"] = torch.cat(
-                    [decoder_attention_mask, decoder_attention_mask.new_ones((decoder_attention_mask.shape[0], 1))],
+                    [
+                        decoder_attention_mask,
+                        decoder_attention_mask.new_ones(
+                            (decoder_attention_mask.shape[0], 1)
+                        ),
+                    ],
                     dim=-1,
                 )
 
-        if "cache_position" in model_kwargs and model_kwargs["cache_position"] is not None:
-            model_kwargs["cache_position"] = model_kwargs["cache_position"][-1:] + accepted_len
+        if (
+            "cache_position" in model_kwargs
+            and model_kwargs["cache_position"] is not None
+        ):
+            model_kwargs["cache_position"] = (
+                model_kwargs["cache_position"][-1:] + accepted_len
+            )
 
         return model_kwargs
 
@@ -279,59 +310,80 @@ class WhisperMedusaModel(PreTrainedModel):
         prev_indices: torch.Tensor,
         use_base_logits: bool = False,
     ):
-        if getattr(outputs, 'decoder_attentions', None) is not None:
+        if getattr(outputs, "decoder_attentions", None) is not None:
             prev_and_accept = torch.cat([prev_indices, select_indices], dim=0)
             orig_decoder_attentions = outputs.decoder_attentions
             tree_decoder_attentions = tree_outputs.decoder_attentions
             all_decoder_attentions = ()
             for i in range(len(orig_decoder_attentions)):
                 orig_attentions = orig_decoder_attentions[i]
-                tree_attentions = tree_decoder_attentions[i][:,:, selected_tree_indices]
-                if len(tree_attentions.shape)<4:
+                tree_attentions = tree_decoder_attentions[i][
+                    :, :, selected_tree_indices
+                ]
+                if len(tree_attentions.shape) < 4:
                     tree_attentions = tree_attentions.unsqueeze(2)
                 tree_attentions = tree_attentions[:, :, :, prev_and_accept]
-                all_decoder_attentions += (orig_attentions,tree_attentions),
+                all_decoder_attentions += ((orig_attentions, tree_attentions),)
             tree_outputs.decoder_attentions = all_decoder_attentions
-        if getattr(outputs, 'encoder_attentions', None) is not None:
+        if getattr(outputs, "encoder_attentions", None) is not None:
             tree_outputs.encoder_attentions = outputs.encoder_attentions
-        if getattr(outputs, 'cross_attentions', None) is not None:
+        if getattr(outputs, "cross_attentions", None) is not None:
             orig_cross_attentions = outputs.cross_attentions
             tree_cross_attentions = tree_outputs.cross_attentions
             all_cross_attentions = ()
             for i in range(len(orig_cross_attentions)):
                 current_orig_cross_attentions = orig_cross_attentions[i]
-                current_tree_cross_attentions = tree_cross_attentions[i][:,:, selected_tree_indices]
-                all_cross_attentions += (current_orig_cross_attentions,current_tree_cross_attentions),
+                current_tree_cross_attentions = tree_cross_attentions[i][
+                    :, :, selected_tree_indices
+                ]
+                all_cross_attentions += (
+                    (current_orig_cross_attentions, current_tree_cross_attentions),
+                )
             tree_outputs.cross_attentions = all_cross_attentions
-        if getattr(outputs, 'encoder_hidden_states', None) is not None:
+        if getattr(outputs, "encoder_hidden_states", None) is not None:
             tree_outputs.encoder_hidden_states = outputs.encoder_hidden_states
-        if getattr(outputs, 'decoder_hidden_states', None) is not None:
+        if getattr(outputs, "decoder_hidden_states", None) is not None:
             orig_decoder_hidden_states = outputs.decoder_hidden_states
             tree_decoder_hidden_states = tree_outputs.decoder_hidden_states
             all_decoder_hidden_states = ()
             for i in range(len(orig_decoder_hidden_states)):
                 current_orig_decoder_hidden_states = orig_decoder_hidden_states[i]
-                current_tree_decoder_hidden_states = tree_decoder_hidden_states[i][:, selected_tree_indices]
-                all_decoder_hidden_states += (torch.cat([current_orig_decoder_hidden_states, current_tree_decoder_hidden_states], dim=1),)
+                current_tree_decoder_hidden_states = tree_decoder_hidden_states[i][
+                    :, selected_tree_indices
+                ]
+                all_decoder_hidden_states += (
+                    torch.cat(
+                        [
+                            current_orig_decoder_hidden_states,
+                            current_tree_decoder_hidden_states,
+                        ],
+                        dim=1,
+                    ),
+                )
             tree_outputs.decoder_hidden_states = all_decoder_hidden_states
-        if getattr(outputs, 'past_key_values', None) is not None:
-            # past_key_values contains decoder num_layers tuples, each with a tuple contains 4 tensors. 
+        if getattr(outputs, "past_key_values", None) is not None:
+            # past_key_values contains decoder num_layers tuples, each with a tuple contains 4 tensors.
             # The first and second are the attention key and value with shape (batch_size, num_heads, sequence_length, embed_size_per_head)
             # The third and fourth are the cross attention (batch_size, num_heads, encoder_sequence_length, embed_size_per_head)
             all_past_key_values_tuple = ()
-            for i in range(len(outputs.past_key_values)): # loop over decoder layers
+            for i in range(len(outputs.past_key_values)):  # loop over decoder layers
                 layer_tree_past_key_values = tree_outputs.past_key_values[i]
                 layer_orig_past_key_values = outputs.past_key_values[i]
                 layer_past_key_values_tuple = ()
-                for j in range(2): # loop over attention key and value
+                for j in range(2):  # loop over attention key and value
                     tree_past = layer_tree_past_key_values[j][:, :, select_indices, :]
                     if use_base_logits:
-                        tree_past = tree_past[:, :, :accept_length+1, :]
+                        tree_past = tree_past[:, :, : accept_length + 1, :]
                     else:
                         tree_past = tree_past[:, :, :accept_length, :]
                     orig_past = layer_orig_past_key_values[j]
-                    layer_past_key_values_tuple += (torch.cat([orig_past, tree_past], dim=2),)
-                layer_past_key_values_tuple += (layer_orig_past_key_values[2], layer_orig_past_key_values[3])
+                    layer_past_key_values_tuple += (
+                        torch.cat([orig_past, tree_past], dim=2),
+                    )
+                layer_past_key_values_tuple += (
+                    layer_orig_past_key_values[2],
+                    layer_orig_past_key_values[3],
+                )
                 all_past_key_values_tuple += (layer_past_key_values_tuple,)
             tree_outputs.past_key_values = all_past_key_values_tuple
 
@@ -354,7 +406,6 @@ class WhisperMedusaModel(PreTrainedModel):
         posterior_alpha: float = 0.3,
         synced_gpus: bool = False,
         streamer: Optional["BaseStreamer"] = None,
-
         **model_kwargs,
     ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
         r"""
@@ -453,26 +504,54 @@ class WhisperMedusaModel(PreTrainedModel):
         ["It might be possible to get a better understanding of the nature of the problem, but it's not"]
         ```"""
         # init values
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+        logits_processor = (
+            logits_processor if logits_processor is not None else LogitsProcessorList()
+        )
+        stopping_criteria = (
+            stopping_criteria
+            if stopping_criteria is not None
+            else StoppingCriteriaList()
+        )
         if max_length is not None:
             warnings.warn(
                 "`max_length` is deprecated in this function, use"
                 " `stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=max_length)])` instead.",
                 UserWarning,
             )
-            stopping_criteria = self.whisper_model.validate_stopping_criteria(stopping_criteria, max_length)
-        pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
-        eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
+            stopping_criteria = self.whisper_model.validate_stopping_criteria(
+                stopping_criteria, max_length
+            )
+        pad_token_id = (
+            pad_token_id
+            if pad_token_id is not None
+            else self.generation_config.pad_token_id
+        )
+        eos_token_id = (
+            eos_token_id
+            if eos_token_id is not None
+            else self.generation_config.eos_token_id
+        )
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
-        eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
-        output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
+        eos_token_id_tensor = (
+            torch.tensor(eos_token_id).to(input_ids.device)
+            if eos_token_id is not None
+            else None
+        )
+        output_scores = (
+            output_scores
+            if output_scores is not None
+            else self.generation_config.output_scores
+        )
         output_attentions = (
-            output_attentions if output_attentions is not None else self.generation_config.output_attentions
+            output_attentions
+            if output_attentions is not None
+            else self.generation_config.output_attentions
         )
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.generation_config.output_hidden_states
         )
         return_dict_in_generate = (
             return_dict_in_generate
@@ -483,15 +562,27 @@ class WhisperMedusaModel(PreTrainedModel):
         # init attention / hidden states / scores tuples
         raw_logits = () if (return_dict_in_generate and output_logits) else None
         scores = () if (return_dict_in_generate and output_scores) else None
-        decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
-        cross_attentions = () if (return_dict_in_generate and output_attentions) else None
-        decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
+        decoder_attentions = (
+            () if (return_dict_in_generate and output_attentions) else None
+        )
+        cross_attentions = (
+            () if (return_dict_in_generate and output_attentions) else None
+        )
+        decoder_hidden_states = (
+            () if (return_dict_in_generate and output_hidden_states) else None
+        )
 
         # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
         if return_dict_in_generate and self.config.is_encoder_decoder:
-            encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
+            encoder_attentions = (
+                model_kwargs["encoder_outputs"].get("attentions")
+                if output_attentions
+                else None
+            )
             encoder_hidden_states = (
-                model_kwargs["encoder_outputs"].get("hidden_states") if output_hidden_states else None
+                model_kwargs["encoder_outputs"].get("hidden_states")
+                if output_hidden_states
+                else None
             )
 
         # keep track of which sequences are already finished
@@ -499,14 +590,18 @@ class WhisperMedusaModel(PreTrainedModel):
         if "inputs_embeds" in model_kwargs:
             cur_len = model_kwargs["inputs_embeds"].shape[1]
         this_peer_finished = False
-        unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
+        unfinished_sequences = torch.ones(
+            batch_size, dtype=torch.long, device=input_ids.device
+        )
         model_kwargs["cache_position"] = torch.arange(cur_len, device=input_ids.device)
 
         # Medusa initialization
 
         # Cache medusa buffers (the fixed patterns for tree attention)
         if medusa_choices is None:
-            medusa_choices = self.get_medusa_choice() # replace with something from config
+            medusa_choices = (
+                self.get_medusa_choice()
+            )  # replace with something from config
 
         if hasattr(self, "medusa_choices") and self.medusa_choices == medusa_choices:
             # Load the cached medusa buffer
@@ -523,10 +618,13 @@ class WhisperMedusaModel(PreTrainedModel):
         new_token = 0
         accept_length_list = []
         with torch.inference_mode():
-            while self.whisper_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
-
+            while self.whisper_model._has_unfinished_sequences(
+                this_peer_finished, synced_gpus, device=input_ids.device
+            ):
                 # prepare model inputs
-                model_inputs = self.whisper_model.prepare_inputs_for_generation(input_ids, **model_kwargs)
+                model_inputs = self.whisper_model.prepare_inputs_for_generation(
+                    input_ids, **model_kwargs
+                )
                 # forward pass to get next token
                 outputs = self(
                     **model_inputs,
@@ -540,17 +638,19 @@ class WhisperMedusaModel(PreTrainedModel):
                 orig_logits = outputs.logits[0]
                 medusa_logits = outputs.logits[1:]
                 candidates, tree_candidates = medusa_utils.generate_candidates(
-                medusa_logits,
-                orig_logits,
-                medusa_topk,
-                medusa_buffers["tree_indices"]
+                    medusa_logits,
+                    orig_logits,
+                    medusa_topk,
+                    medusa_buffers["tree_indices"],
                 )
 
                 # Use tree attention to verify the candidates and get predictions
                 process_logits, tree_outputs = medusa_utils.tree_decoding(
                     self,
                     tree_candidates,
-                    outputs["past_key_values"],# assuming that past_key_values is return from the model
+                    outputs[
+                        "past_key_values"
+                    ],  # assuming that past_key_values is return from the model
                     medusa_buffers["medusa_position_ids"],
                     input_ids,
                     medusa_buffers["retrieve_indices"],
@@ -558,11 +658,17 @@ class WhisperMedusaModel(PreTrainedModel):
                     output_hidden_states,
                     model_kwargs,
                 )
-                logits_processor(input_ids, process_logits) # NOTE - The logic of logits_processor here only functions correctly when batch_size equals 1.
-                
+                logits_processor(
+                    input_ids, process_logits
+                )  # NOTE - The logic of logits_processor here only functions correctly when batch_size equals 1.
+
                 # Evaluate the posterior of the candidates to select the accepted candidate prefix
                 best_candidate, accept_length = medusa_utils.evaluate_posterior(
-                    process_logits, candidates, temperature, posterior_threshold, posterior_alpha
+                    process_logits,
+                    candidates,
+                    temperature,
+                    posterior_threshold,
+                    posterior_alpha,
                 )
 
                 accept_length_list.append(accept_length.item())
@@ -572,7 +678,12 @@ class WhisperMedusaModel(PreTrainedModel):
                     use_base_logits = False
 
                 # Update the input_ids and logits
-                input_ids, next_token_logits, new_token, next_tokens = medusa_utils.update_inference_inputs(
+                (
+                    input_ids,
+                    next_token_logits,
+                    new_token,
+                    next_tokens,
+                ) = medusa_utils.update_inference_inputs(
                     self,
                     input_ids,
                     candidates,
@@ -586,7 +697,7 @@ class WhisperMedusaModel(PreTrainedModel):
                     eos_token_id,
                     pad_token_id,
                     unfinished_sequences,
-                    use_base_logits
+                    use_base_logits,
                 )
                 # Store scores, attentions and hidden_states when required
                 if return_dict_in_generate:
@@ -596,7 +707,9 @@ class WhisperMedusaModel(PreTrainedModel):
                         raw_logits += (next_token_logits,)
                     if output_attentions:
                         decoder_attentions += (
-                            (tree_outputs.decoder_attentions,) if self.config.is_encoder_decoder else (tree_outputs.attentions,)
+                            (tree_outputs.decoder_attentions,)
+                            if self.config.is_encoder_decoder
+                            else (tree_outputs.attentions,)
                         )
                         if self.config.is_encoder_decoder:
                             cross_attentions += (tree_outputs.cross_attentions,)
@@ -609,7 +722,7 @@ class WhisperMedusaModel(PreTrainedModel):
                         )
                 if streamer is not None:
                     streamer.put(next_tokens.cpu())
-                    
+
                 if use_base_logits:
                     len2use = accept_length.item() + 2
                 else:
@@ -623,16 +736,27 @@ class WhisperMedusaModel(PreTrainedModel):
                 )
 
                 # if eos_token was found in one sentence, set sentence to finished
-                if eos_token_id_tensor is not None: 
+                if eos_token_id_tensor is not None:
                     unfinished_sequences = unfinished_sequences.mul(
-                    next_tokens[:,-1].unsqueeze(1).tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0))# NOTE - this only check that the last token is eos_token_id 
-                
-                unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
-                this_peer_finished = unfinished_sequences.max() == 0 or input_ids.shape[1] + self.config.medusa_num_heads >= self.generation_config.max_length
+                        next_tokens[:, -1]
+                        .unsqueeze(1)
+                        .tile(eos_token_id_tensor.shape[0], 1)
+                        .ne(eos_token_id_tensor.unsqueeze(1))
+                        .prod(dim=0)
+                    )  # NOTE - this only check that the last token is eos_token_id
+
+                unfinished_sequences = unfinished_sequences & ~stopping_criteria(
+                    input_ids, scores
+                )
+                this_peer_finished = (
+                    unfinished_sequences.max() == 0
+                    or input_ids.shape[1] + self.config.medusa_num_heads
+                    >= self.generation_config.max_length
+                )
 
         if streamer is not None:
             streamer.end()
-            
+
         if return_dict_in_generate:
             if self.config.is_encoder_decoder:
                 return GenerateEncoderDecoderOutput(
@@ -656,7 +780,7 @@ class WhisperMedusaModel(PreTrainedModel):
                     past_key_values=model_kwargs.get("past_key_values"),
                 )
         else:
-            return input_ids 
+            return input_ids
 
     def _multi_heads_generate(
         self,
@@ -664,7 +788,9 @@ class WhisperMedusaModel(PreTrainedModel):
         generation_config: Optional[GenerationConfig] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        prefix_allowed_tokens_fn: Optional[
+            Callable[[int, torch.Tensor], List[int]]
+        ] = None,
         synced_gpus: Optional[bool] = None,
         assistant_model: Optional["PreTrainedModel"] = None,
         streamer: Optional["BaseStreamer"] = None,
@@ -757,7 +883,9 @@ class WhisperMedusaModel(PreTrainedModel):
         """
         # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
         self.whisper_model._validate_model_class()
-        generation_config, model_kwargs = self.whisper_model._prepare_generation_config(generation_config, **kwargs) 
+        generation_config, model_kwargs = self.whisper_model._prepare_generation_config(
+            generation_config, **kwargs
+        )
         self.whisper_model._validate_model_kwargs(model_kwargs.copy())
 
         # 2. Set generation parameters if not already defined
@@ -766,10 +894,19 @@ class WhisperMedusaModel(PreTrainedModel):
                 synced_gpus = True
             else:
                 synced_gpus = False
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+        logits_processor = (
+            logits_processor if logits_processor is not None else LogitsProcessorList()
+        )
+        stopping_criteria = (
+            stopping_criteria
+            if stopping_criteria is not None
+            else StoppingCriteriaList()
+        )
 
-        if generation_config.pad_token_id is None and generation_config.eos_token_id is not None:
+        if (
+            generation_config.pad_token_id is None
+            and generation_config.eos_token_id is not None
+        ):
             if model_kwargs.get("attention_mask", None) is None:
                 logger.warning(
                     "The attention mask and the pad token id were not set. As a consequence, you may observe "
@@ -778,7 +915,9 @@ class WhisperMedusaModel(PreTrainedModel):
             eos_token_id = generation_config.eos_token_id
             if isinstance(eos_token_id, list):
                 eos_token_id = eos_token_id[0]
-            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
+            logger.warning(
+                f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation."
+            )
             generation_config.pad_token_id = eos_token_id
 
         # 3. Define model inputs
@@ -786,7 +925,11 @@ class WhisperMedusaModel(PreTrainedModel):
         # model_input_name is defined if model-specific keyword input is passed
         # otherwise model_input_name is None
         # all model-specific keyword inputs are removed from `model_kwargs`
-        inputs_tensor, model_input_name, model_kwargs = self.whisper_model._prepare_model_inputs(
+        (
+            inputs_tensor,
+            model_input_name,
+            model_kwargs,
+        ) = self.whisper_model._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
         batch_size = inputs_tensor.shape[0]
@@ -801,12 +944,22 @@ class WhisperMedusaModel(PreTrainedModel):
         else:
             model_kwargs["use_cache"] = generation_config.use_cache
 
-        accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
+        accepts_attention_mask = "attention_mask" in set(
+            inspect.signature(self.forward).parameters.keys()
+        )
         requires_attention_mask = "encoder_outputs" not in model_kwargs
 
-        if model_kwargs.get("attention_mask", None) is None and requires_attention_mask and accepts_attention_mask:
-            model_kwargs["attention_mask"] = self.whisper_model._prepare_attention_mask_for_generation(
-                inputs_tensor, generation_config.pad_token_id, generation_config.eos_token_id
+        if (
+            model_kwargs.get("attention_mask", None) is None
+            and requires_attention_mask
+            and accepts_attention_mask
+        ):
+            model_kwargs[
+                "attention_mask"
+            ] = self.whisper_model._prepare_attention_mask_for_generation(
+                inputs_tensor,
+                generation_config.pad_token_id,
+                generation_config.eos_token_id,
             )
 
         # decoder-only models should use left-padding for generation
@@ -816,7 +969,8 @@ class WhisperMedusaModel(PreTrainedModel):
             if (
                 generation_config.pad_token_id is not None
                 and len(inputs_tensor.shape) == 2
-                and torch.sum(inputs_tensor[:, -1] == generation_config.pad_token_id) > 0
+                and torch.sum(inputs_tensor[:, -1] == generation_config.pad_token_id)
+                > 0
             ):
                 logger.warning(
                     "A decoder-only architecture is being used, but right-padding was detected! For correct "
@@ -826,13 +980,18 @@ class WhisperMedusaModel(PreTrainedModel):
         if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs:
             # if model is encoder decoder encoder_outputs are created
             # and added to `model_kwargs`
-            model_kwargs = self.whisper_model._prepare_encoder_decoder_kwargs_for_generation(
-                inputs_tensor, model_kwargs, model_input_name
+            model_kwargs = (
+                self.whisper_model._prepare_encoder_decoder_kwargs_for_generation(
+                    inputs_tensor, model_kwargs, model_input_name
+                )
             )
 
         # 5. Prepare `input_ids` which will be used for auto-regressive generation
         if self.config.is_encoder_decoder:
-            input_ids, model_kwargs = self.whisper_model._prepare_decoder_input_ids_for_generation(
+            (
+                input_ids,
+                model_kwargs,
+            ) = self.whisper_model._prepare_decoder_input_ids_for_generation(
                 batch_size=batch_size,
                 model_input_name=model_input_name,
                 model_kwargs=model_kwargs,
@@ -841,14 +1000,21 @@ class WhisperMedusaModel(PreTrainedModel):
                 device=inputs_tensor.device,
             )
         else:
-            input_ids = inputs_tensor if model_input_name == "input_ids" else model_kwargs.pop("input_ids")
+            input_ids = (
+                inputs_tensor
+                if model_input_name == "input_ids"
+                else model_kwargs.pop("input_ids")
+            )
 
         if streamer is not None:
             streamer.put(input_ids.cpu())
 
         # 6. Prepare `max_length` depending on other stopping criteria.
         input_ids_length = input_ids.shape[-1]
-        has_default_max_length = kwargs.get("max_length") is None and generation_config.max_length is not None
+        has_default_max_length = (
+            kwargs.get("max_length") is None
+            and generation_config.max_length is not None
+        )
         if generation_config.max_new_tokens is not None:
             if not has_default_max_length and generation_config.max_length is not None:
                 logger.warning(
@@ -857,7 +1023,9 @@ class WhisperMedusaModel(PreTrainedModel):
                     "Please refer to the documentation for more information. "
                     "(https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)"
                 )
-            generation_config.max_length = generation_config.max_new_tokens + input_ids_length
+            generation_config.max_length = (
+                generation_config.max_new_tokens + input_ids_length
+            )
 
         # otherwise the total length [inputs-embeds-len + new-tokens-len] will go beyond indicated `max_length``
         elif (
@@ -866,7 +1034,9 @@ class WhisperMedusaModel(PreTrainedModel):
             and not self.config.is_encoder_decoder
         ):
             generation_config.max_length -= inputs_tensor.shape[1]
-            generation_config.min_length = max(generation_config.min_length - inputs_tensor.shape[1], 0)
+            generation_config.min_length = max(
+                generation_config.min_length - inputs_tensor.shape[1], 0
+            )
 
         if generation_config.cache_implementation in NEED_SETUP_CACHE_CLASSES_MAPPING:
             if generation_config.cache_implementation == "static":
@@ -880,9 +1050,15 @@ class WhisperMedusaModel(PreTrainedModel):
                         "The `generation_config` defines a `cache_implementation` that is not compatible with this model."
                         " Make sure it has a `_setup_cache` function."
                     )
-                self.whisper_model._setup_cache(cache_cls, max_batch_size=batch_size, max_cache_len=generation_config.max_length)
+                self.whisper_model._setup_cache(
+                    cache_cls,
+                    max_batch_size=batch_size,
+                    max_cache_len=generation_config.max_length,
+                )
 
-        self.whisper_model._validate_generated_length(generation_config, input_ids_length, has_default_max_length)
+        self.whisper_model._validate_generated_length(
+            generation_config, input_ids_length, has_default_max_length
+        )
 
         # 7. determine generation mode
         generation_mode = generation_config.get_generation_mode(assistant_model)
@@ -942,7 +1118,7 @@ class WhisperMedusaModel(PreTrainedModel):
             raise Exception("Beam search is not supported with medusa for now")
         elif generation_mode == GenerationMode.GROUP_BEAM_SEARCH:
             raise Exception("Beam search is not supported with medusa for now")
-        
+
         if generation_config.cache_implementation in NEED_SETUP_CACHE_CLASSES_MAPPING:
             if not callable(getattr(self, "_reset_cache", None)):
                 raise ValueError(
@@ -953,10 +1129,13 @@ class WhisperMedusaModel(PreTrainedModel):
 
         return result
 
-    def _retrieve_logit_processors(self, generation_config, logits_processor, begin_index, is_shortform, num_beams):
-        if generation_config.return_timestamps is True: 
-            
-            raise NotImplementedError("return_timestamps is not supported with medusa for now")
+    def _retrieve_logit_processors(
+        self, generation_config, logits_processor, begin_index, is_shortform, num_beams
+    ):
+        if generation_config.return_timestamps is True:
+            raise NotImplementedError(
+                "return_timestamps is not supported with medusa for now"
+            )
             # TODO - Implement return_timestamps
             # timestamp_processor = medusa_utils.MedusaWhisperTimeStampLogitsProcessor(generation_config, begin_index=begin_index)
             # logits_processor = (
@@ -964,7 +1143,11 @@ class WhisperMedusaModel(PreTrainedModel):
             # )
 
         if generation_config.suppress_tokens is not None:
-            suppress_tokens_processor = medusa_utils.MedusaSuppressTokensLogitsProcessor(generation_config.suppress_tokens)
+            suppress_tokens_processor = (
+                medusa_utils.MedusaSuppressTokensLogitsProcessor(
+                    generation_config.suppress_tokens
+                )
+            )
             logits_processor = (
                 [suppress_tokens_processor]
                 if logits_processor is None
@@ -973,8 +1156,10 @@ class WhisperMedusaModel(PreTrainedModel):
             generation_config.suppress_tokens = None
 
         if generation_config.begin_suppress_tokens is not None:
-            begin_suppress_processor = medusa_utils.MedusaSuppressTokensAtBeginLogitsProcessor(
-                generation_config.begin_suppress_tokens, begin_index=begin_index
+            begin_suppress_processor = (
+                medusa_utils.MedusaSuppressTokensAtBeginLogitsProcessor(
+                    generation_config.begin_suppress_tokens, begin_index=begin_index
+                )
             )
             logits_processor = (
                 [begin_suppress_processor]
@@ -983,9 +1168,10 @@ class WhisperMedusaModel(PreTrainedModel):
             )
             generation_config.begin_suppress_tokens = None
 
-        if generation_config.no_speech_threshold is not None and not is_shortform: 
-            
-            raise NotImplementedError("no_speech_detection is not supported with medusa for now")
+        if generation_config.no_speech_threshold is not None and not is_shortform:
+            raise NotImplementedError(
+                "no_speech_detection is not supported with medusa for now"
+            )
             # TODO - Implement no_speech_detection
             # no_speech_detector = medusa_utils.MedusaWhisperNoSpeechDetection(
             #     no_speech_token=generation_config.no_timestamps_token_id - 1,
@@ -998,7 +1184,7 @@ class WhisperMedusaModel(PreTrainedModel):
             # no_speech_detector.set_model(self)
 
         return logits_processor
-    
+
     def forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
@@ -1018,9 +1204,8 @@ class WhisperMedusaModel(PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         disable_medusa: Optional[bool] = False,
-        **kwargs
+        **kwargs,
     ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
-        
         whisper_model_outputs = self.whisper_model.medusa_forward(
             input_features=input_features,
             attention_mask=attention_mask,
@@ -1041,22 +1226,19 @@ class WhisperMedusaModel(PreTrainedModel):
         )
         hidden_states = whisper_model_outputs[0]
         medusa_logits = []
-        
 
         if self.config.medusa_heads_type == "base_head":
             for i in range(len(self.medusa_heads)):
                 head_out = self.medusa_heads[i](hidden_states)
                 head_proj = self.whisper_model.proj_out(head_out)
-                medusa_logits.append(head_proj)  
+                medusa_logits.append(head_proj)
                 if disable_medusa:
                     break
-                      
+
         else:
             raise Exception(f"{self.config.medusa_heads_type } not supported")
-      
 
         stack_heads_logits = torch.stack(medusa_logits, dim=0)
-
 
         loss = None
 
@@ -1082,7 +1264,9 @@ class WhisperMedusaModel(PreTrainedModel):
         generation_config: Optional[GenerationConfig] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        prefix_allowed_tokens_fn: Optional[
+            Callable[[int, torch.Tensor], List[int]]
+        ] = None,
         synced_gpus: bool = False,
         return_timestamps: Optional[bool] = None,
         task: Optional[str] = None,
@@ -1116,11 +1300,17 @@ class WhisperMedusaModel(PreTrainedModel):
             generation_config = copy.deepcopy(self.generation_config)
         else:
             generation_config = copy.deepcopy(generation_config)
-    
+
         # 2. set global generate variables
-        input_stride = self.whisper_model.model.encoder.conv1.stride[0] * self.whisper_model.model.encoder.conv2.stride[0]
+        input_stride = (
+            self.whisper_model.model.encoder.conv1.stride[0]
+            * self.whisper_model.model.encoder.conv2.stride[0]
+        )
         num_segment_frames = input_stride * self.config.max_source_positions
-        batch_size, total_input_frames = self.whisper_model._retrieve_total_input_frames(
+        (
+            batch_size,
+            total_input_frames,
+        ) = self.whisper_model._retrieve_total_input_frames(
             input_features=input_features, input_stride=input_stride, kwargs=kwargs
         )
         is_shortform = total_input_frames <= num_segment_frames
@@ -1146,9 +1336,11 @@ class WhisperMedusaModel(PreTrainedModel):
             generation_config=generation_config,
         )
         self.whisper_model._set_return_timestamps(
-            return_timestamps=return_timestamps, is_shortform=is_shortform, generation_config=generation_config
+            return_timestamps=return_timestamps,
+            is_shortform=is_shortform,
+            generation_config=generation_config,
         )
-        
+
         if isinstance(language, list):
             if is_multilingual is None:
                 is_multilingual = False
@@ -1158,14 +1350,21 @@ class WhisperMedusaModel(PreTrainedModel):
             else:
                 language = language[0]
                 is_multilingual = False or is_multilingual
-   
+
         is_multilingual = True
         self.whisper_model._set_language_and_task(
-            language=language, task=task, is_multilingual=is_multilingual, generation_config=generation_config
+            language=language,
+            task=task,
+            is_multilingual=is_multilingual,
+            generation_config=generation_config,
         )
-        self.whisper_model._set_token_ids(generation_config=generation_config, config=self.config, kwargs=kwargs)
+        self.whisper_model._set_token_ids(
+            generation_config=generation_config, config=self.config, kwargs=kwargs
+        )
         self.whisper_model._set_num_frames(
-            return_token_timestamps=return_token_timestamps, generation_config=generation_config, kwargs=kwargs
+            return_token_timestamps=return_token_timestamps,
+            generation_config=generation_config,
+            kwargs=kwargs,
         )
         self.whisper_model._set_thresholds_and_condition(
             generation_config=generation_config,
@@ -1209,15 +1408,26 @@ class WhisperMedusaModel(PreTrainedModel):
 
             decoder_input_ids = kwargs.pop("decoder_input_ids", None)
             if decoder_input_ids is None:
-                one_tensor = torch.ones((batch_size, 1), device=self.device, dtype=torch.long)
-                decoder_input_ids = torch.cat([t * one_tensor for t in init_tokens], dim=-1)
+                one_tensor = torch.ones(
+                    (batch_size, 1), device=self.device, dtype=torch.long
+                )
+                decoder_input_ids = torch.cat(
+                    [t * one_tensor for t in init_tokens], dim=-1
+                )
 
             if prompt_ids is not None:
                 decoder_input_ids = torch.cat(
-                    [prompt_ids[None].repeat(decoder_input_ids.shape[0], 1), decoder_input_ids], dim=-1
+                    [
+                        prompt_ids[None].repeat(decoder_input_ids.shape[0], 1),
+                        decoder_input_ids,
+                    ],
+                    dim=-1,
                 )
 
-            if kwargs.get("max_new_tokens", 0) + decoder_input_ids.shape[-1] > self.config.max_target_positions:
+            if (
+                kwargs.get("max_new_tokens", 0) + decoder_input_ids.shape[-1]
+                > self.config.max_target_positions
+            ):
                 max_new_tokens = kwargs.get("max_new_tokens", 0)
                 raise ValueError(
                     f"The length of `decoder_input_ids` equal `prompt_ids` plus special start tokens is {decoder_input_ids.shape[-1]}, and the `max_new_tokens` "
@@ -1227,19 +1437,25 @@ class WhisperMedusaModel(PreTrainedModel):
                     "You should either reduce the length of your prompt, or reduce the value of `max_new_tokens`, "
                     f"so that their combined length is less than {self.config.max_target_positions}."
                 )
-            
-            outputs = self._multi_heads_generate(input_features,
-                        generation_config=generation_config,
-                        logits_processor=logits_processor,
-                        stopping_criteria=stopping_criteria,
-                        prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                        synced_gpus=synced_gpus,
-                        decoder_input_ids=decoder_input_ids,
-                        **kwargs,)
 
-            if generation_config.return_token_timestamps and hasattr(generation_config, "alignment_heads"):
+            outputs = self._multi_heads_generate(
+                input_features,
+                generation_config=generation_config,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                synced_gpus=synced_gpus,
+                decoder_input_ids=decoder_input_ids,
+                **kwargs,
+            )
+
+            if generation_config.return_token_timestamps and hasattr(
+                generation_config, "alignment_heads"
+            ):
                 outputs["token_timestamps"] = self._extract_token_timestamps(
-                    outputs, generation_config.alignment_heads, num_frames=generation_config.num_frames
+                    outputs,
+                    generation_config.alignment_heads,
+                    num_frames=generation_config.num_frames,
                 )
 
             return outputs

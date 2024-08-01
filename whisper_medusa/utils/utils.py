@@ -54,6 +54,7 @@ def str_or_list(s):
         else:
             return new_s
 
+
 def str_int_list(s):
     if s is None:
         return s
@@ -66,6 +67,4 @@ def str_int_list(s):
 
 
 def get_device(gpu_id="0"):
-    return torch.device(
-        f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
-    )
+    return torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")

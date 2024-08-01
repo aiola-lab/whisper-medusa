@@ -1,6 +1,6 @@
-'''
+"""
 Some of the following code is a snippet with changes from https://github.com/FasterDecoding/Medusa/blob/e2a5d20c048a9b0a4092e6933c34313687422518/medusa/model/utils_legacy.py
-'''
+"""
 
 import torch
 from typing import Callable, Iterator, List, Optional, Tuple, Union
@@ -11,11 +11,13 @@ from transformers.generation.logits_process import (
 from transformers.utils import add_start_docstrings
 from transformers.generation import GenerationConfig
 
+
 class MedusaGenerationConfig(GenerationConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.posterior_threshold = kwargs.pop("posterior_threshold", 0.09)
         self.posterior_alpha = kwargs.pop("posterior_alpha", 0.3)
+
 
 class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
     r"""
@@ -74,7 +76,10 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
     """
 
     def __init__(
-        self, generate_config, begin_index: Optional[int] = None, _detect_timestamp_from_logprob: Optional[bool] = None
+        self,
+        generate_config,
+        begin_index: Optional[int] = None,
+        _detect_timestamp_from_logprob: Optional[bool] = None,
     ):  # support for the kwargs
         self.no_timestamps_token_id = generate_config.no_timestamps_token_id
         self.timestamp_begin = generate_config.no_timestamps_token_id + 1
@@ -88,17 +93,23 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
         )
 
         num_forced_ids = (
-            len(generate_config.forced_decoder_ids) if generate_config.forced_decoder_ids is not None else 0
+            len(generate_config.forced_decoder_ids)
+            if generate_config.forced_decoder_ids is not None
+            else 0
         )
         self.begin_index = begin_index or (num_forced_ids + 1)
 
-        self.max_initial_timestamp_index = getattr(generate_config, "max_initial_timestamp_index", None)
+        self.max_initial_timestamp_index = getattr(
+            generate_config, "max_initial_timestamp_index", None
+        )
 
     def set_begin_index(self, begin_index):
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+    ) -> torch.FloatTensor:
         # suppress <|notimestamps|> which is handled by without_timestamps
         scores[:, :, self.no_timestamps_token_id] = -float("inf")
         num_medusa_heads = scores.shape[1]
@@ -114,7 +125,7 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
                 if penultimate_was_timestamp:  # has to be non-timestamp
                     scores[k, 0, self.timestamp_begin :] = -float("inf")
                 else:  # cannot be normal text tokens
-                    scores[k, 0,: self.eos_token_id] = -float("inf")  
+                    scores[k, 0, : self.eos_token_id] = -float("inf")
             timestamps = sampled_tokens[sampled_tokens.ge(self.timestamp_begin)]
             if timestamps.numel() > 0:
                 # `timestamps` shouldn't decrease; forbid timestamp tokens smaller than the last
@@ -125,26 +136,32 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
                     # Avoid to emit <|0.00|> again
                     timestamp_last = timestamps[-1] + 1
 
-                scores[k, :, :self.timestamp_begin : timestamp_last] = -float("inf")
+                scores[k, :, : self.timestamp_begin : timestamp_last] = -float("inf")
 
         # apply the `max_initial_timestamp` option
         if input_ids.shape[1] == self.begin_index:
-            scores[:, 0 ,: self.timestamp_begin] = -float("inf")
-            scores[:, 1, self.timestamp_begin:] = -float("inf")
+            scores[:, 0, : self.timestamp_begin] = -float("inf")
+            scores[:, 1, self.timestamp_begin :] = -float("inf")
             if self.max_initial_timestamp_index is not None:
                 last_allowed = self.timestamp_begin + self.max_initial_timestamp_index
-                scores[:, 0,last_allowed + 1 :] = -float("inf")
+                scores[:, 0, last_allowed + 1 :] = -float("inf")
 
         # if sum of probability over timestamps is above any other token, sample timestamp
         logprobs = torch.nn.functional.log_softmax(scores.float(), dim=-1)
         for k in range(input_ids.shape[0]):
-            medusa_timestamp_logprob = logprobs[k, :,self.timestamp_begin :].logsumexp(dim=-1)
-            medusa_max_text_token_logprob = torch.max(logprobs[k, : ,: self.timestamp_begin],axis=-1).values
+            medusa_timestamp_logprob = logprobs[k, :, self.timestamp_begin :].logsumexp(
+                dim=-1
+            )
+            medusa_max_text_token_logprob = torch.max(
+                logprobs[k, :, : self.timestamp_begin], axis=-1
+            ).values
             prev_wav_updated = False
             for i in range(len(medusa_timestamp_logprob)):
                 timestamp_logprob = medusa_timestamp_logprob[i]
                 max_text_token_logprob = medusa_max_text_token_logprob[i]
-                if (timestamp_logprob > max_text_token_logprob or prev_wav_updated) and self._detect_timestamp_from_logprob:
+                if (
+                    timestamp_logprob > max_text_token_logprob or prev_wav_updated
+                ) and self._detect_timestamp_from_logprob:
                     if prev_wav_updated:
                         prev_wav_updated = False
                     else:
@@ -152,7 +169,8 @@ class MedusaWhisperTimeStampLogitsProcessor(LogitsProcessor):
                     scores[k, i, : self.timestamp_begin] = -float("inf")
 
         return scores
-    
+
+
 class MedusaSuppressTokensLogitsProcessor(LogitsProcessor):
     r"""
     This processor can be used to suppress a list of tokens in multi heads prediction. The processor will set their log probs to `-inf` so
@@ -165,12 +183,15 @@ class MedusaSuppressTokensLogitsProcessor(LogitsProcessor):
         self.suppress_tokens = list(suppress_tokens)
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        '''
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+    ) -> torch.FloatTensor:
+        """
         scores: torch.LongTensor with shape of [num_heads, batch_size, seq_len]
-        '''
+        """
         scores[:, :, self.suppress_tokens] = -float("inf")
         return scores
+
 
 class MedusaSuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
     r"""
@@ -215,15 +236,21 @@ class MedusaSuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+    ) -> torch.FloatTensor:
         if input_ids.shape[1] == self.begin_index:
             scores[:, :, self.begin_suppress_tokens] = -float("inf")
 
         return scores
 
+
 class MedusaWhisperNoSpeechDetection(LogitsProcessor):
     r"""This processor can be used to detect silence when using Whisper. It should take as input unprocessed logits to follow the original implementation"""
-    def __init__(self, no_speech_token: int, begin_index: int, scores_is_logprobs: bool = False):
+
+    def __init__(
+        self, no_speech_token: int, begin_index: int, scores_is_logprobs: bool = False
+    ):
         self.no_speech_token = no_speech_token
         # offset between <start-of-transcription> token, <SOT>, in paper and first generated token
         # is equal to the position of the first generated token index
@@ -253,7 +280,9 @@ class MedusaWhisperNoSpeechDetection(LogitsProcessor):
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+    ) -> torch.FloatTensor:
         if input_ids.shape[1] == self.begin_index:
             if self.start_of_trans_offset > 1:
                 with torch.no_grad():
@@ -433,7 +462,7 @@ def generate_candidates(medusa_logits, logits, medusa_topk, tree_indices):
     - candidates (torch.Tensor): Cartesian product of candidate tokens across Medusa layers.
     - tree_candidates (torch.Tensor): Reshaped candidates matched to the tree structure.
     """
-    # NOTE - this assumes greedy decoding and beam of 1 for the original logits! 
+    # NOTE - this assumes greedy decoding and beam of 1 for the original logits!
     # Greedy decoding for original logits
     candidates = [torch.argmax(logits[:, -1]).unsqueeze(0)]
     if len(set(medusa_topk)) == 1:
@@ -487,9 +516,16 @@ def tree_decoding(
     # Decode the tree candidates using the model
     if "past_key_values" in model_kwargs:
         model_kwargs["past_key_values"] = past_key_values
-        tree_candidates_model_inputs = model.prepare_inputs_for_medusa_tree_generation(tree_candidates, **model_kwargs,decoder_position_ids=position_ids)
+        tree_candidates_model_inputs = model.prepare_inputs_for_medusa_tree_generation(
+            tree_candidates, **model_kwargs, decoder_position_ids=position_ids
+        )
     else:
-        tree_candidates_model_inputs = model.prepare_inputs_for_medusa_tree_generation(tree_candidates, **model_kwargs, past_key_values=past_key_values,decoder_position_ids=position_ids)
+        tree_candidates_model_inputs = model.prepare_inputs_for_medusa_tree_generation(
+            tree_candidates,
+            **model_kwargs,
+            past_key_values=past_key_values,
+            decoder_position_ids=position_ids,
+        )
     # NOTE - this code is true only when past_key_values are used in the model! (use_cache = true)!!!
     # forward pass to get next token
     outputs = model(
@@ -497,14 +533,14 @@ def tree_decoding(
         return_dict=True,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        disable_medusa=True, # there is no need to run medusa here
+        disable_medusa=True,  # there is no need to run medusa here
     )
 
     orig_tree_logits = outputs.logits[0]
 
     # Reorder the logits based on the retrieve_indices for consistency
     logits = orig_tree_logits[0, retrieve_indices]
-  
+
     return logits, outputs
 
 
@@ -616,24 +652,34 @@ def update_inference_inputs(
     prev_indices = torch.arange(prev_input_len).to(input_ids.device)
     # Map the best candidate indices to the original indices in the sequence
     selected_tree_indices = retrieve_indices[best_candidate, : accept_length + 1]
-    select_indices = (
-        selected_tree_indices + prev_input_len
-    )
+    select_indices = selected_tree_indices + prev_input_len
     # Append the tokens from the best candidate to the input sequence
     next_tokens = candidates[None, best_candidate, : accept_length + 1]
     if use_base_logits:
-        additional_next_token = torch.argmax(logits[:,0], dim=-1)
-        next_tokens = torch.cat([next_tokens, additional_next_token.unsqueeze(0)], dim=-1)
+        additional_next_token = torch.argmax(logits[:, 0], dim=-1)
+        next_tokens = torch.cat(
+            [next_tokens, additional_next_token.unsqueeze(0)], dim=-1
+        )
     # finished sentences should have their next token be a padding token
     if eos_token_id is not None:
         if pad_token_id is None:
-            raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
-        next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            raise ValueError(
+                "If `eos_token_id` is defined, make sure that `pad_token_id` is defined."
+            )
+        next_tokens = next_tokens * unfinished_sequences + pad_token_id * (
+            1 - unfinished_sequences
+        )
 
-    input_ids = torch.cat(
-        [input_ids, next_tokens], dim=-1
+    input_ids = torch.cat([input_ids, next_tokens], dim=-1)
+    model._update_medusa_outputs(
+        outputs,
+        tree_outputs,
+        select_indices,
+        selected_tree_indices,
+        accept_length,
+        prev_indices,
+        use_base_logits,
     )
-    model._update_medusa_outputs(outputs, tree_outputs, select_indices, selected_tree_indices, accept_length, prev_indices, use_base_logits)
 
     # Extract logits and medusa logits for the accepted tokens
     logits = logits[None, best_candidate, accept_length : accept_length + 1]
