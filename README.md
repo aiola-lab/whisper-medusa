@@ -1,7 +1,5 @@
 # Whisper Medusa
 
----------
-
 Whisper is an advanced encoder-decoder model for speech transcription and 
 translation, processing audio through encoding and decoding stages. Given 
 its large size and slow inference speed, various optimization strategies like 
@@ -12,12 +10,12 @@ evaluate our model on the LibriSpeech dataset, demonstrating strong performance
 with both speed and accuracy improvements.
 
 <div style="text-align: center;">
-    <img src="assets/aiola_whisper_medusa.png" alt="Alt text for the image" />
+    <img src="assets/aiola_whisper_medusa.png"/>
     <p><em>Whisper Medusa architecture. </em></p>
 </div>
 
 <div style="text-align: center;">
-    <img src="assets/whisper_medusa_libri_gen.gif" alt="Alt text for the image" />
+    <img src="assets/whisper_medusa_libri_gen.gif"/>
     <p><em>Time comparison between Whisper Medusa and Whisper vanilla
     on librispeech dataset. Whisper Medusa generates the sequence X2 faster. </em></p>
 </div>
