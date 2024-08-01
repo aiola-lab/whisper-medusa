@@ -7,13 +7,12 @@ import pandas as pd
 import torch
 import torchaudio
 
-from whisper_medusa.models.whisper import WhisperMedusaModel, WhisperMedusaGenerationOutput
+from whisper_medusa.models.model import WhisperMedusaModel, WhisperMedusaGenerationOutput
 from whisper_medusa.utils.utils import str2bool, set_logger, get_device
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor
 from whisper_medusa.utils.metrics import compute_wer, compute_cer
 from tqdm import tqdm
 import os
-import numpy as np
 warnings.filterwarnings("ignore")
 
 SAMPLING_RATE = 16000

@@ -7,7 +7,6 @@ import torch.nn as nn
 from transformers import WhisperForConditionalGeneration
 from transformers.modeling_outputs import Seq2SeqLMOutput
 from transformers import PreTrainedModel
-from whisper_medusa.utils.config_and_args import MedusaConfig
 from transformers import AutoConfig
 import os
 import warnings
@@ -31,6 +30,9 @@ from transformers.integrations import is_deepspeed_zero3_enabled
 import whisper_medusa.models.medusa_utils  as medusa_utils
 import torch.distributed as dist
 import inspect
+
+from whisper_medusa.utils.config_and_args import MedusaConfig
+
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
@@ -1257,24 +1259,3 @@ class WhisperMedusaModel(PreTrainedModel):
 
         else:
             raise NotImplementedError("Longform generation is not supported yet")
-
-def get_model(args_i):
-
-    if args_i.model_type == "medusa":
-        if not os.path.exists(args_i.whisper_model_name):
-            config = MedusaConfig(medusa_num_heads=args_i.medusa_num_heads, 
-                                medusa_num_layers=args_i.medusa_num_layers, 
-                                whisper_model_name=args_i.whisper_model_name,
-                                medusa_hidden_size=args_i.medusa_hidden_size,
-                                medusa_heads_type=args_i.medusa_heads_type,
-                                medusa_choices=args_i.medusa_choices,
-                                medusa_kl_loss=args_i.medusa_kl_loss,
-                                medusa_kl_weight=args_i.medusa_kl_weight,
-                                medusa_loss_on_original=args_i.medusa_loss_on_original)
-            model = WhisperMedusaModel(config)
-        else:
-            model = WhisperMedusaModel.from_pretrained(args_i.whisper_model_name)
-    else:
-        raise NotImplementedError("Invalid model type")
-
-    return model
