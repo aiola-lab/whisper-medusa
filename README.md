@@ -46,7 +46,7 @@ To evaluate the model we assume a csv file with the following columns:
 Then run the following command:
 
 ```bash
-python whisper_medusa/eval.py \
+python whisper_medusa/eval_whisper_medusa.py \
 --model-name /path/to/model \
 --data-path /path/to/data \
 --out-file-path /path/to/output \
