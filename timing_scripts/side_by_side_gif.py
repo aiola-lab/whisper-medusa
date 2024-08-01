@@ -18,7 +18,7 @@ def create_image_with_text(
     text,
     elapsed_time,
     title,
-    image_size=(350, 300),  # Increase height to accommodate title
+    image_size=(500, 500),  # Increase height to accommodate title
     font_size=20,
     line_spacing=10,
     font_path="/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -92,7 +92,7 @@ def create_frames(
     current_text = ""
     word_time_pairs = group_words_by_time(word_time_pairs)
     frame_interval = 1 / frame_rate
-    total_frames = int(np.ceil(max_time * frame_rate))
+    total_frames = int(np.ceil(max_time * frame_rate))+1
 
     word_idx = 0
     last_elapsed_time = 0
