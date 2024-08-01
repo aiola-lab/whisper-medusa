@@ -83,6 +83,7 @@ def evaluate_model(args, device):
     output_file_path = Path(args.out_file_path)
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     results.to_csv(output_file_path, index=False)
+    logging.info(f"Results saved to {output_file_path.as_posix()}")
 
 
 if __name__ == "__main__":
