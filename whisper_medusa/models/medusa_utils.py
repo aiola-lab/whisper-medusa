@@ -2,7 +2,7 @@
 Some of the following code is a snippet with changes from https://github.com/FasterDecoding/Medusa/blob/e2a5d20c048a9b0a4092e6933c34313687422518/medusa/model/utils_legacy.py
 """
 
-from typing import Callable, Iterator, List, Optional, Tuple, Union
+from typing import Optional
 
 import torch
 from transformers.generation import GenerationConfig

@@ -13,6 +13,7 @@ Start with creating a virtual environment and activating it:
 ```bash
 conda create -n whisper-medusa python=3.11 -y
 conda activate whisper-medusa
+pip install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu118
 ```
 
 Then install the package:
