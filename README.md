@@ -44,7 +44,7 @@ pip install -e .
 Inference can be done using the following code:
 ```python
 from whisper_medusa import WhisperMedusa
-model = WhisperMedusa.from_pretrained("aiola/whisper-medusa")
+model = WhisperMedusa.from_pretrained("aiola/whisper-medusa-v1")
 model_output = model.generate(
     input_features,
     language=language,
