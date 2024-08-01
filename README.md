@@ -1,11 +1,13 @@
 # Whisper Medusa
 
 ---------
+
 ![](assets/aiola_whisper_medusa.png)
----------
 
 
 ---------
+
+
 ## Installation
 Start with creating a virtual environment and activating it:
 ```bash
@@ -59,3 +61,12 @@ arguments description:
 -------
 
 ### Citations
+- `whisper-medusa` is based on [Medusa fast decoding](https://github.com/FasterDecoding/Medusa).
+```bibtex
+@article{cai2024medusa,
+  title={Medusa: Simple llm inference acceleration framework with multiple decoding heads},
+  author={Cai, Tianle and Li, Yuhong and Geng, Zhengyang and Peng, Hongwu and Lee, Jason D and Chen, Deming and Dao, Tri},
+  journal={arXiv preprint arXiv:2401.10774},
+  year={2024}
+}
+```

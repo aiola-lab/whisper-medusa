@@ -1,13 +1,13 @@
 import argparse
 import logging
 import warnings
-import json
+
 
 import pandas as pd
 import torch
 import torchaudio
 
-from whisper_medusa.models.model import WhisperMedusaModel, WhisperMedusaGenerationOutput
+from whisper_medusa.models import WhisperMedusaModel
 from whisper_medusa.utils.utils import str2bool, set_logger, get_device
 from transformers import WhisperProcessor
 from whisper_medusa.utils.metrics import compute_wer, compute_cer
@@ -49,12 +49,8 @@ def evaluate_model(args, device):
                 input_features,
                 language=args.language,
             )
-            if isinstance(model_output, WhisperMedusaGenerationOutput): # TODO - change this to work on both cases
-                count_selected_heads = model_output.count_selected_heads
-                predict_ids = model_output.sequences[0]
-            else:
-                count_selected_heads = {}  # regular whisper model
-                predict_ids = model_output[0]
+
+            predict_ids = model_output[0]
 
             pred = processor.decode(predict_ids, skip_special_tokens=True)
             preds.append(pred)
