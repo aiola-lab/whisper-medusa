@@ -1,7 +1,7 @@
 import argparse
 import logging
-import os
 import warnings
+from pathlib import Path
 
 import pandas as pd
 import torch
@@ -79,8 +79,10 @@ def evaluate_model(args, device):
             "language": lang_list,
         }
     )
-    out_path = os.path.dirname(args.out_file_path)
-    results.to_csv(out_path, index=False)
+
+    output_file_path = Path(args.out_file_path)
+    output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(output_file_path, index=False)
 
 
 if __name__ == "__main__":
