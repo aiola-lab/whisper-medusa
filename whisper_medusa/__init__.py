@@ -1,0 +1,1 @@
+from whisper_medusa.models import WhisperMedusaModel
