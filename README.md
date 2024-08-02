@@ -63,8 +63,9 @@ if sr != SAMPLING_RATE:
     input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(input_speech)
 
 input_features = processor(input_speech.squeeze(), return_tensors="pt", sampling_rate=SAMPLING_RATE).input_features
-input_features = input_features
+input_features = input_features.to(device)
 
+model = model.to(device)
 model_output = model.generate(
     input_features,
     language=language,
