@@ -14,11 +14,10 @@ evaluate our model on the LibriSpeech dataset, demonstrating strong performance 
 with on-par accuracy compared to the vanilla Whisper model. 
 
 
-<div style="text-align: center;">
-    <img src="assets/aiola_whisper_medusa.png"/>
-    <p><em>Whisper Medusa architecture. </em></p>
-</div>
-
+<p align="center">
+    <img src="assets/aiola_whisper_medusa.png"/><br>
+    <em>Whisper Medusa architecture. </em>
+</p>
 
 
 ---------
@@ -31,11 +30,10 @@ please use English audio only.
 On average, Whisper Medusa achieves x1.5 faster generation compared with the Whisper vanilla 
 with on-par WER (4.2% vs. 4% respectively).
 
-<div style="text-align: center;">
-    <img src="assets/whisper_medusa_speedup.png"/>
-    <p><em> Medusa Speedup by target sequence length on Librispeech dataset.
- </em></p>
-</div>
+<p align="center">
+    <img src=assets/whisper_medusa_speedup.png width=680 height=520><br>
+    <em>Whisper Medusa speedup compared to Whisper vanilla. </em>
+</p>
 
 ---------
 
