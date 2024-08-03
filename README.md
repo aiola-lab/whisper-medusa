@@ -13,6 +13,7 @@ which significantly improves speed with small degradation in WER. We train and
 evaluate our model on the LibriSpeech dataset, demonstrating strong performance speed improvements 
 with on-par accuracy compared to the vanilla Whisper model. 
 
+
 <p align="center">
     <img src="assets/aiola_whisper_medusa.png"/><br>
     <em>Whisper Medusa architecture. </em>
@@ -33,8 +34,6 @@ with on-par WER (4.2% vs. 4% respectively).
     <img src=assets/whisper_medusa_speedup.png width=680 height=520><br>
     <em>Whisper Medusa speedup compared to Whisper vanilla. </em>
 </p>
-
-
 
 ---------
 
