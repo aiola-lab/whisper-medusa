@@ -32,7 +32,7 @@ On average, Whisper Medusa achieves x1.5 faster generation compared with the Whi
 with on-par WER (4.2% vs. 4% respectively).
 
 <div style="text-align: center;">
-    <img src="assets/whisper_medusa_speedup.png"/>
+    <img src="assets/whisper_medusa_speedup.png" width="680" height="520"/>
     <p><em> Medusa Speedup by target sequence length on Librispeech dataset.
  </em></p>
 </div>
