@@ -4,7 +4,6 @@ import random
 
 import numpy as np
 import torch
-import wandb
 
 
 def set_logger():
@@ -67,4 +66,12 @@ def str_int_list(s):
 
 
 def get_device(gpu_id="0"):
-    return torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        logging.info(f"GPU available. Using GPU {gpu_id}")
+        return torch.device(f"cuda:{gpu_id}")
+    elif torch.backends.mps.is_available():
+        logging.info("MPS available. Using MPS")
+        return torch.device("mps")
+    else:
+        logging.info("Using CPU")
+        return torch.device("cpu")

@@ -1,28 +1,43 @@
 # Whisper Medusa
 
+<div style="text-align: center;">
+    <img src="assets/whisper_medusa_libri_gen.gif"/>
+</div>
+
 Whisper is an advanced encoder-decoder model for speech transcription and 
 translation, processing audio through encoding and decoding stages. Given 
 its large size and slow inference speed, various optimization strategies like 
 Faster-Whisper and Speculative Decoding have been proposed to enhance performance. 
 Our Medusa model builds on Whisper by predicting multiple tokens per iteration, 
 which significantly improves speed with small degradation in WER. We train and 
-evaluate our model on the LibriSpeech dataset, demonstrating strong performance 
-with both speed and accuracy improvements.
+evaluate our model on the LibriSpeech dataset, demonstrating strong performance speed improvements 
+with on-par accuracy compared to the vanilla Whisper model. 
+
 
 <div style="text-align: center;">
     <img src="assets/aiola_whisper_medusa.png"/>
     <p><em>Whisper Medusa architecture. </em></p>
 </div>
 
-<div style="text-align: center;">
-    <img src="assets/whisper_medusa_libri_gen.gif"/>
-    <p><em>Time comparison between Whisper Medusa and Whisper vanilla
-    on librispeech dataset. Whisper Medusa generates the sequence X2 faster. </em></p>
-</div>
 
 
 ---------
+## Training and Evaluation Details
+Whisper Medusa is based on Whisper large model with 10 Medusa heads. 
+It was trained on the LibriSpeech dataset to perform audio translation. 
+The Medusa heads were optimized for English, so for optimal performance and speed improvements, 
+please use English audio only.
 
+On average, Whisper Medusa achieves x1.5 faster generation compared with the Whisper vanilla 
+with on-par WER (4.2% vs. 4% respectively).
+
+<div style="text-align: center;">
+    <img src="assets/whisper_medusa_speedup.png"/>
+    <p><em> Medusa Speedup by target sequence length on Librispeech dataset.
+ </em></p>
+</div>
+
+---------
 
 ## Installation
 Start with creating a virtual environment and activating it:
@@ -59,6 +74,9 @@ language = "en"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 input_speech, sr = torchaudio.load(path_to_audio)
+if input_speech.shape[0] > 1:  # If stereo, average the channels
+    input_speech = input_speech.mean(dim=0, keepdim=True)
+
 if sr != SAMPLING_RATE:
     input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(input_speech)
 
