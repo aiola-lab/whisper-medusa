@@ -3,23 +3,23 @@ import inspect
 import os
 import warnings
 from collections import Counter
-from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple,
-                    Union)
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from transformers import (AutoConfig, PreTrainedModel,
-                          WhisperForConditionalGeneration)
-from transformers.generation.configuration_utils import (GenerationConfig,
-                                                         GenerationMode)
+from transformers import AutoConfig, PreTrainedModel, WhisperForConditionalGeneration
+from transformers.generation.configuration_utils import GenerationConfig, GenerationMode
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
-from transformers.generation.utils import (NEED_SETUP_CACHE_CLASSES_MAPPING,
-                                           GenerateDecoderOnlyOutput,
-                                           GenerateEncoderDecoderOutput,
-                                           GenerateNonBeamOutput,
-                                           GenerateOutput, logger)
+from transformers.generation.utils import (
+    NEED_SETUP_CACHE_CLASSES_MAPPING,
+    GenerateDecoderOnlyOutput,
+    GenerateEncoderDecoderOutput,
+    GenerateNonBeamOutput,
+    GenerateOutput,
+    logger,
+)
 from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_outputs import Seq2SeqLMOutput
 from transformers.utils import ModelOutput

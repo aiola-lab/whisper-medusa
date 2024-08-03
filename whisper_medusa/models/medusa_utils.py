@@ -7,7 +7,9 @@ from typing import Optional
 import torch
 from transformers.generation import GenerationConfig
 from transformers.generation.logits_process import (
-    LOGITS_PROCESSOR_INPUTS_DOCSTRING, LogitsProcessor)
+    LOGITS_PROCESSOR_INPUTS_DOCSTRING,
+    LogitsProcessor,
+)
 from transformers.utils import add_start_docstrings
 
 
