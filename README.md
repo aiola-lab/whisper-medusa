@@ -122,7 +122,7 @@ arguments description:
 - Whisper Medusa was trained on the LibriSpeech dataset, where each sample was recorded in an isolated environment. 
 As a result, the model's robustness to background noise may be limited. 
 - The model is optimized for English audio with sampling rate of 16kHz.
-- Only 30 seconds of audio can be processed at a time.
+- The current code supports transcription of audio files of up to 30 seconds.
 
 -------
 
