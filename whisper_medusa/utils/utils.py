@@ -124,7 +124,12 @@ def parse_args():
         default=True,
         help="use limited amount of eval data",
     )
-
+    parser.add_argument(
+        "--debug-examples",
+        type=int,
+        default=1000,
+        help="number of examples to use in debug mode",
+    )
     parser.add_argument(
         "--gradient-accumulation-steps",
         type=int,

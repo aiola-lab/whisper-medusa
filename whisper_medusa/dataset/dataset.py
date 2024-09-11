@@ -16,7 +16,7 @@ class ASRDataSet(torch.utils.data.Dataset):
 
     Parameters
     ----------
-    data_path : str. Path to csv file with columns: "sentence", "path".
+    data_path : str. Path to csv file with columns: "sentence", "path", and "language".
     """
 
     def __init__(
@@ -26,6 +26,7 @@ class ASRDataSet(torch.utils.data.Dataset):
         processor: WhisperProcessor,
         target_sample=16_000,
         debug_mode=False,
+        debug_examples=1000,
     ):
         assert split in [
             "train",
@@ -34,6 +35,7 @@ class ASRDataSet(torch.utils.data.Dataset):
         ]  # sanity for case we will use split later.
         self.split = split
         self.debug_mode = debug_mode
+        self.debug_examples = debug_examples
 
         # read csv file + create dataset
         self.data_path = data_path
@@ -54,7 +56,7 @@ class ASRDataSet(torch.utils.data.Dataset):
 
         # in case of debug mode, sample only 1000 samples
         if self.debug_mode and self.split in ["val", "test"]:
-            sample_size = min(1000, len(self.dataset_df))
+            sample_size = min(self.debug_examples, len(self.dataset_df))
             self.dataset_df = self.dataset_df.sample(n=sample_size)
         self.dataset = self.dataset_df.to_dict("records")
 
@@ -80,7 +82,6 @@ class ASRDataSet(torch.utils.data.Dataset):
         audio = batch["audio"]
 
         # compute log-Mel input features from input audio array
-        # todo: switch to our feature_extractor implementation which is faster.
         batch["input_features"] = self.processor.feature_extractor(
             audio["array"], sampling_rate=audio["sampling_rate"]
         ).input_features[0]
@@ -157,6 +158,7 @@ def get_dataset(args_i, processor):
         processor=processor,
         target_sample=SAMPLE_RATE,
         debug_mode=args_i.debug_mode,
+        debug_examples=args_i.debug_examples,
     )
 
     dataset["validation"] = ASRDataSet(
@@ -165,6 +167,7 @@ def get_dataset(args_i, processor):
         processor=processor,
         target_sample=SAMPLE_RATE,
         debug_mode=args_i.debug_mode,
+        debug_examples=args_i.debug_examples,
     )
 
     return dataset
