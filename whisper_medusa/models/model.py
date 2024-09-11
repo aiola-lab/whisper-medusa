@@ -13,7 +13,9 @@ from transformers import (AutoConfig, PreTrainedModel,
                           WhisperForConditionalGeneration)
 from transformers.generation.configuration_utils import (GenerationConfig,
                                                          GenerationMode)
-from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.logits_process import (
+    LogitsProcessorList, SuppressTokensAtBeginLogitsProcessor,
+    SuppressTokensLogitsProcessor)
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.generation.utils import (NEED_SETUP_CACHE_CLASSES_MAPPING,
                                            GenerateDecoderOnlyOutput,
@@ -23,20 +25,28 @@ from transformers.generation.utils import (NEED_SETUP_CACHE_CLASSES_MAPPING,
 from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_outputs import Seq2SeqLMOutput
 from transformers.utils import ModelOutput
+from transformers.generation.logits_process import (
+    LogitsProcessorList, SuppressTokensAtBeginLogitsProcessor,
+    SuppressTokensLogitsProcessor)
 
 import whisper_medusa.models.medusa_utils as medusa_utils
 from whisper_medusa.utils.config_and_args import MedusaConfig
-
+from transformers.models.whisper.modeling_whisper import WhisperDecoderLayer
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
 
 from transformers.models.whisper.modeling_whisper import shift_tokens_right
-
+from whisper_medusa.utils.losses import (MedusaCrossEntropyLoss,
+                                                MedusaKLDivLoss)
 
 class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
     def __init__(self, config, *model_args, **model_kwargs):
         super().__init__(config, *model_args, **model_kwargs)
+        self.freeze_name2func = {
+            "all_but_last": self._freeze_all_but_last,
+            "whisper": self._freeze_all,
+        }
 
     def medusa_forward(
         self,
@@ -117,6 +127,51 @@ class Whisper2MedusaHeadsConditionalGeneration(WhisperForConditionalGeneration):
 
         return outputs
 
+    def _freeze_encoder(self):
+        for p in self.model.encoder.parameters():
+            p.requires_grad = False
+
+    def _freeze_decoder(self, freeze_last_layer: bool = True):
+        # Freeze all layers and the last one in medusa model
+        decoder_layers = list(self.model.decoder.children())
+
+        for layer in decoder_layers:
+            if type(layer) == nn.ModuleList:
+                for idx, sub_layer in enumerate(layer):
+                    if not freeze_last_layer and idx == len(layer) - 1:
+                        break
+                    for p in sub_layer.parameters():
+                        p.requires_grad = False
+            else:
+                for p in layer.parameters():
+                    p.requires_grad = False
+
+    def _freeze_lm_head(self):
+        for p in self.proj_out.parameters():
+            p.requires_grad = False
+
+    def _freeze_all_but_last(self):
+        # freeze all layers but last decoder layer
+        self._freeze_encoder()
+        self._freeze_decoder(freeze_last_layer=False)
+        self._freeze_lm_head()
+
+    def _freeze_all(self):
+        # freeze all layers 
+        self._freeze_decoder()
+        self._freeze_encoder()
+        self._freeze_lm_head()
+
+    def freeze_model_parts(self, parts_to_freeze):
+        if parts_to_freeze is None:
+            return
+        if parts_to_freeze not in self.freeze_name2func:
+            raise ValueError(
+                f"parts_to_freeze {parts_to_freeze} is not supported, "
+                f"select from {list(self.freeze_name2func.keys())}"
+            )
+
+        self.freeze_name2func[parts_to_freeze]()
 
 class MedusaResBlock(nn.Module):
     """
@@ -170,11 +225,28 @@ class WhisperMedusaModel(PreTrainedModel):
                         )
                     )
                 self.medusa_heads.append(nn.Sequential(*head_list))
+        elif self.config.medusa_heads_type == "medusa_block":
+            self.medusa_block = WhisperDecoderLayer(self.whisper_model.config)
+            self.medusa_block.load_state_dict(
+                self.whisper_model.model.decoder.layers[-1].state_dict()
+            )  # load the last layer of the whisper model
+            self.medusa_heads = nn.ModuleList()
+            for _ in range(self.config.medusa_num_heads):
+                head_list = []
+                for _ in range(self.config.medusa_num_layers):
+                    head_list.append(
+                        MedusaResBlock(
+                            self.config.d_model, self.config.medusa_hidden_size
+                        )
+                    )
+                self.medusa_heads.append(nn.Sequential(*head_list))   
         else:
             raise NotImplementedError(
-                "Only base_head is supported for medusa_heads_type"
+                "Only base_head and medusa_block is supported for medusa_heads_type"
             )
         self.update_generation_config(self.config)
+        if self.config.output_whisper_original:
+                self.set_output_whisper_original()
 
     def update_generation_config(self, config):
         generation_config_dict = self.whisper_model.generation_config.to_dict()
@@ -192,7 +264,7 @@ class WhisperMedusaModel(PreTrainedModel):
     ):
         # Manually load config to ensure that the medusa_num_heads parameter is loaded
 
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
+        config =  MedusaConfig.from_dict(AutoConfig.from_pretrained(pretrained_model_name_or_path).to_dict())
         model = super().from_pretrained(
             pretrained_model_name_or_path,
             *args,
@@ -631,8 +703,12 @@ class WhisperMedusaModel(PreTrainedModel):
 
                 if synced_gpus and this_peer_finished:
                     continue  # don't waste resources running the code we don't need
-                orig_logits = outputs.logits[0]
-                medusa_logits = outputs.logits[1:]
+
+                orig_logits = logits_processor(input_ids, outputs.logits[0].squeeze(0)).unsqueeze(0)
+                batch, num_medusa, seq_len, vocab_size = outputs.logits[1:].shape
+                medusa_logits = logits_processor(input_ids, outputs.logits[1:].reshape(batch* num_medusa* seq_len, vocab_size))
+                medusa_logits = medusa_logits.reshape(batch, num_medusa, seq_len, vocab_size)
+
                 candidates, tree_candidates = medusa_utils.generate_candidates(
                     medusa_logits,
                     orig_logits,
@@ -654,9 +730,12 @@ class WhisperMedusaModel(PreTrainedModel):
                     output_hidden_states,
                     model_kwargs,
                 )
-                logits_processor(
-                    input_ids, process_logits
-                )  # NOTE - The logic of logits_processor here only functions correctly when batch_size equals 1.
+
+                batch, seq_len, vocab_size = process_logits.shape
+                process_logits = logits_processor(
+                    input_ids, process_logits.reshape(batch * seq_len, process_logits.shape[-1])
+                    )  
+                process_logits = process_logits.reshape(batch, seq_len, vocab_size)
 
                 # Evaluate the posterior of the candidates to select the accepted candidate prefix
                 best_candidate, accept_length = medusa_utils.evaluate_posterior(
@@ -667,7 +746,11 @@ class WhisperMedusaModel(PreTrainedModel):
                     posterior_alpha,
                 )
 
-                accept_length_list.append(accept_length.item())
+                accept_length_list.append(accept_length.item())                
+                # Tree_decoding generates logits for the next token across all Medusa options include the base head. 
+                # When no additional Medusa heads are used beyond the base_head,set use_base_logits to True.
+                # The code then uses the first logit from tree_decoding along with the base logit calculated by the model.
+                # Resulting in generating 2 tokens per step.
                 if accept_length.item() == 0:
                     use_base_logits = True
                 else:
@@ -734,12 +817,9 @@ class WhisperMedusaModel(PreTrainedModel):
                 # if eos_token was found in one sentence, set sentence to finished
                 if eos_token_id_tensor is not None:
                     unfinished_sequences = unfinished_sequences.mul(
-                        next_tokens[:, -1]
-                        .unsqueeze(1)
-                        .tile(eos_token_id_tensor.shape[0], 1)
-                        .ne(eos_token_id_tensor.unsqueeze(1))
-                        .prod(dim=0)
-                    )  # NOTE - this only check that the last token is eos_token_id
+                        (~torch.any(next_tokens.tile(eos_token_id_tensor.shape[0], 1)
+                        .eq(eos_token_id_tensor.unsqueeze(1)),axis=1)).prod(dim=0)
+                    ) # NOTE - this check if one of the tokens is eos_token_id_tensor
 
                 unfinished_sequences = unfinished_sequences & ~stopping_criteria(
                     input_ids, scores
@@ -752,6 +832,18 @@ class WhisperMedusaModel(PreTrainedModel):
 
         if streamer is not None:
             streamer.end()
+
+        # Set the last token to eos_token_id if it's not already assigned, ensuring that all Medusa heads' outputs are also set to eos_token_id
+        new_input_ids = input_ids.clone()
+        is_end_token = input_ids.tile(eos_token_id_tensor.shape[0], 1).eq(eos_token_id_tensor.unsqueeze(1))
+        had_end = torch.any(is_end_token,axis=1)
+        for idx in range(len(had_end)):
+            if had_end[idx]:
+                for j in range(is_end_token.shape[1]):
+                    if is_end_token[idx,j]:
+                        new_input_ids[idx,j+1:] = eos_token_id_tensor.item()
+                        break
+        input_ids = new_input_ids
 
         if return_dict_in_generate:
             if self.config.is_encoder_decoder:
@@ -1139,11 +1231,7 @@ class WhisperMedusaModel(PreTrainedModel):
             # )
 
         if generation_config.suppress_tokens is not None:
-            suppress_tokens_processor = (
-                medusa_utils.MedusaSuppressTokensLogitsProcessor(
-                    generation_config.suppress_tokens
-                )
-            )
+            suppress_tokens_processor = SuppressTokensLogitsProcessor(generation_config.suppress_tokens)
             logits_processor = (
                 [suppress_tokens_processor]
                 if logits_processor is None
@@ -1152,10 +1240,9 @@ class WhisperMedusaModel(PreTrainedModel):
             generation_config.suppress_tokens = None
 
         if generation_config.begin_suppress_tokens is not None:
-            begin_suppress_processor = (
-                medusa_utils.MedusaSuppressTokensAtBeginLogitsProcessor(
-                    generation_config.begin_suppress_tokens, begin_index=begin_index
-                )
+            begin_suppress_processor = SuppressTokensAtBeginLogitsProcessor(
+                generation_config.begin_suppress_tokens,
+                begin_index=begin_index,
             )
             logits_processor = (
                 [begin_suppress_processor]
@@ -1221,22 +1308,147 @@ class WhisperMedusaModel(PreTrainedModel):
             return_dict=return_dict,
         )
         hidden_states = whisper_model_outputs[0]
+        if self.config.output_whisper_original:
+            orig_logits = self.output_whisper_original(whisper_model_outputs, use_cache, past_key_values, head_mask, attention_mask, cross_attn_head_mask)
         medusa_logits = []
 
         if self.config.medusa_heads_type == "base_head":
             for i in range(len(self.medusa_heads)):
                 head_out = self.medusa_heads[i](hidden_states)
                 head_proj = self.whisper_model.proj_out(head_out)
+                if i == 0:
+                    base_logits = head_proj
                 medusa_logits.append(head_proj)
                 if disable_medusa:
                     break
 
         else:
-            raise Exception(f"{self.config.medusa_heads_type } not supported")
+            base_logits = self.whisper_model.proj_out(hidden_states)
+            medusa_logits.append(base_logits)
+
+            if not disable_medusa:
+                if self.config.medusa_heads_type == "medusa_block":
+                    use_cache = (
+                        use_cache if use_cache is not None else self.config.use_cache
+                    )
+                    past_key_value = (
+                        past_key_values[-1] if past_key_values is not None else None
+                    )
+                    medusa_block_decoder_outputs = self.medusa_block(
+                        whisper_model_outputs.last_hidden_state,
+                        attention_mask=attention_mask,
+                        encoder_hidden_states=whisper_model_outputs.encoder_last_hidden_state,
+                        layer_head_mask=(
+                            head_mask[-1] if head_mask is not None else None
+                        ),
+                        cross_attn_layer_head_mask=(
+                            cross_attn_head_mask[-1]
+                            if cross_attn_head_mask is not None
+                            else None
+                        ),
+                        past_key_value=past_key_value,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+                    if use_cache:
+                        whisper_model_outputs.past_key_values += (
+                            medusa_block_decoder_outputs[3 if output_attentions else 1],
+                        )
+
+                    if output_attentions:
+                        whisper_model_outputs.decoder_attentions += (
+                            medusa_block_decoder_outputs[1],
+                        )
+
+                        if whisper_model_outputs.encoder_last_hidden_state is not None:
+                            whisper_model_outputs.cross_attentions += (
+                                medusa_block_decoder_outputs[2],
+                            )
+
+                    for i in range(len(self.medusa_heads)):
+                        head_out = self.medusa_heads[i](medusa_block_decoder_outputs[0])
+                        head_proj = self.whisper_model.proj_out(head_out)
+                        medusa_logits.append(head_proj)
+                else:
+                    raise ValueError("Invalid medusa_heads_type, received {}".format(self.config.medusa_heads_type))
+            else:
+                if self.config.medusa_heads_type == "medusa_block":
+                    use_cache = (
+                        use_cache if use_cache is not None else self.config.use_cache
+                    )
+                    past_key_value = (
+                        past_key_values[-1] if past_key_values is not None else None
+                    )
+                    medusa_block_decoder_outputs = self.medusa_block(
+                        whisper_model_outputs.last_hidden_state,
+                        attention_mask=attention_mask,
+                        encoder_hidden_states=whisper_model_outputs.encoder_last_hidden_state,
+                        layer_head_mask=(
+                            head_mask[-1] if head_mask is not None else None
+                        ),
+                        cross_attn_layer_head_mask=(
+                            cross_attn_head_mask[-1]
+                            if cross_attn_head_mask is not None
+                            else None
+                        ),
+                        past_key_value=past_key_value,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+                    if use_cache:
+                        whisper_model_outputs.past_key_values += (
+                            medusa_block_decoder_outputs[3 if output_attentions else 1],
+                        )
+
+                    if output_attentions:
+                        whisper_model_outputs.decoder_attentions += (
+                            medusa_block_decoder_outputs[1],
+                        )
+
+                        if whisper_model_outputs.encoder_last_hidden_state is not None:
+                            whisper_model_outputs.cross_attentions += (
+                                medusa_block_decoder_outputs[2],
+                            )
+
 
         stack_heads_logits = torch.stack(medusa_logits, dim=0)
 
         loss = None
+        if labels is not None:
+            loss_fct = MedusaCrossEntropyLoss(
+                loss_on_original=self.config.medusa_loss_on_original
+            )
+            if hasattr(self.config, "medusa_kl_loss") and self.config.medusa_kl_loss:
+                kl_fct = MedusaKLDivLoss(
+                    lamda=self.config.medusa_kl_weight,
+                    loss_on_original=self.config.medusa_loss_on_original,
+                )
+                if self.config.output_whisper_original:
+                    kl_base_logits = orig_logits.detach()
+                else:
+                    kl_base_logits = base_logits.detach()
+
+            # move labels to correct device to enable PP
+            labels = labels.to(hidden_states.device)
+            if self.config.medusa_loss_on_original:
+                loss = loss_fct(stack_heads_logits, labels)
+                if (
+                    hasattr(self.config, "medusa_kl_loss")
+                    and self.config.medusa_kl_loss
+                ):
+ 
+                    kl_loss = kl_fct(stack_heads_logits,kl_base_logits)
+                    loss = loss + kl_loss
+            else:
+                loss = loss_fct(
+                    stack_heads_logits[1:], labels
+                )  # skip the first head - which is the base model
+                if (
+                    hasattr(self.config, "medusa_kl_loss")
+                    and self.config.medusa_kl_loss
+                ):
+                    kl_loss = kl_fct(stack_heads_logits[1:], kl_base_logits)
+                    loss = loss + kl_loss
 
         if not return_dict:
             output = (stack_heads_logits,) + whisper_model_outputs[1:]
@@ -1458,3 +1670,65 @@ class WhisperMedusaModel(PreTrainedModel):
 
         else:
             raise NotImplementedError("Longform generation is not supported yet")
+
+    def freeze_model_parts(self, parts_to_freeze):
+        self.whisper_model.freeze_model_parts(parts_to_freeze)
+
+    def set_output_whisper_original(self):
+        self.whisper_model.config.output_hidden_states = True
+        self.config.output_hidden_states = True
+        self.whisper_layer = WhisperDecoderLayer(self.whisper_model.config)
+        self.whisper_layer.load_state_dict(self.whisper_model.model.decoder.layers[-1].state_dict())  # load the last layer of the whisper model
+        for param in self.whisper_layer.parameters():
+            param.requires_grad = False
+
+
+    def output_whisper_original(self, whisper_model_outputs, use_cache, past_key_values, head_mask, attention_mask, cross_attn_head_mask):
+        with torch.no_grad():
+            use_cache = (
+                use_cache if use_cache is not None else self.config.use_cache
+            )
+            past_key_value = (
+                past_key_values[-2] if past_key_values is not None else None
+            )
+            orig_hidden_state = self.whisper_layer(
+                whisper_model_outputs.decoder_hidden_states[-2],
+                attention_mask=attention_mask,
+                encoder_hidden_states=whisper_model_outputs.encoder_last_hidden_state,
+                layer_head_mask=(
+                    head_mask[-2] if head_mask is not None else None
+                ),
+                cross_attn_layer_head_mask=(
+                    cross_attn_head_mask[-2]
+                    if cross_attn_head_mask is not None
+                    else None
+                ),
+                past_key_value=past_key_value,
+                output_attentions=None,
+                use_cache=use_cache,
+            )
+            norm_state = self.whisper_model.model.decoder.layer_norm(orig_hidden_state[0])
+            logits = self.whisper_model.proj_out(norm_state)
+            return logits
+        
+def get_model(args_i):
+
+    if not os.path.exists(args_i.whisper_model_name):
+        config = MedusaConfig(
+            medusa_num_heads=args_i.medusa_num_heads,
+            medusa_num_layers=args_i.medusa_num_layers,
+            whisper_model_name=args_i.whisper_model_name,
+            medusa_hidden_size=args_i.medusa_hidden_size,
+            medusa_heads_type=args_i.medusa_heads_type,
+            medusa_choices=args_i.medusa_choices,
+            medusa_kl_loss=args_i.medusa_kl_loss,
+            medusa_kl_weight=args_i.medusa_kl_weight,
+            medusa_loss_on_original=args_i.medusa_loss_on_original,
+            output_whisper_original=args_i.output_whisper_original,
+
+        )
+        model = WhisperMedusaModel(config)
+    else:
+        model = WhisperMedusaModel.from_pretrained(args_i.whisper_model_name)
+
+    return model

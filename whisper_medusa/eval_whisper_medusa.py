@@ -49,9 +49,15 @@ def evaluate_model(args, device):
             ).input_features
             input_features = input_features.to(device)
 
+            if args.regulation_factor  != 1:
+                exponential_decay_length_penalty = (args.regulation_start, args.regulation_factor) 
+            else:
+                exponential_decay_length_penalty = None
+
             model_output = model.generate(
                 input_features,
                 language=args.language,
+                exponential_decay_length_penalty=exponential_decay_length_penalty,
             )
 
             predict_ids = model_output[0]
@@ -110,8 +116,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--language", type=str, default="en", help="transcribe language"
     )
-
+    parser.add_argument(
+        "--regulation-start",
+        type=float,
+        default=140,
+        help="regulation_start for exponential decay",
+    )
+    parser.add_argument(
+        "--regulation-factor",
+        type=float,
+        default=1,
+        help="repetition penalty for exponential decay",
+    )
+    
     args = parser.parse_args()
-    device = get_device()
     set_logger()
+    device = get_device()
     evaluate_model(args, device)
