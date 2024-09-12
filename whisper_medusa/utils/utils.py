@@ -227,13 +227,6 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--compute-wer",
-        type="custom_bool",
-        default="False",
-        help="compute WER or not",
-    )
-
-    parser.add_argument(
         "--whisper-model-name",
         type=str,
         default="openai/whisper-large-v2",
@@ -325,6 +318,18 @@ def parse_args():
         help="If true, use wandb to report training metrics.",
     )
     parser.add_argument(
+        "--wandb-project",
+        type=str,
+        default=None,
+        help="The wandb project to log to",
+    )
+    parser.add_argument(
+        "--wandb-entity",
+        type=str,
+        default=None,
+        help="The wandb entity to log to",
+    )
+    parser.add_argument(
         "--wandb-id",
         type=str,
         default=None,
@@ -335,18 +340,23 @@ def parse_args():
     args_ = parser.parse_args()
 
     if args_.wandb_logging:
+        if args_.wandb_entity is None or args_.wandb_project is None:
+            raise ValueError("wandb-entity and wandb-project must be provided when using wandb logging")
         if args_.resume_from_checkpoint and not args_.wandb_id is None:
             wandb.init(
                 id=args_.wandb_id,
-                project="<YOUR_PROJECT>",
-                entity="<YOUR_ENTITY>",
+                project=args_.wandb_project,
+                entity=args_.wandb_entity,
                 resume="must",
             )
         else:
             name = (
                 f"medusa_{args_.whisper_model_name}_{args_.language}_{args_.exp_name}"
             )
-            wandb.init(name=name, project="<YOUR_PROJECT>", entity="<YOUR_ENTITY>")
+            wandb.init(name=name, project=args_.wandb_project, entity=args_.wandb_entity)
             wandb.config.update(args_)
 
     return args_
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)

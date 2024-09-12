@@ -9,13 +9,9 @@ from transformers import  WhisperProcessor
 from whisper_medusa.dataset.dataset import (
     DataCollatorSpeechSeq2SeqWithPadding, get_dataset)
 from whisper_medusa.models import get_model
-from whisper_medusa.utils.config_and_args import get_training_args
-from whisper_medusa.utils.medusa_trainer_cls import MedusaTrainer
-from whisper_medusa.utils.metrics import compute_metrics
-from whisper_medusa.utils.utils import (parse_args, set_logger, set_seed )
+from whisper_medusa.utils import (get_training_args, MedusaTrainer,parse_args, set_logger, set_seed, count_parameters)
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def _train(
     args_i, training_args, callbacks=None):
@@ -31,12 +27,6 @@ def _train(
 
     data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor)
 
-    compute_metrics_arg = (
-        partial(compute_metrics, tokenizer=processor.tokenizer)
-        if args_i.compute_wer
-        else None
-    )
-
     trainer = MedusaTrainer(
         model=model,
         args=training_args,
@@ -44,7 +34,6 @@ def _train(
         train_dataset=dataset_dict["train"],
         eval_dataset={"validation": dataset_dict["validation"]},
         tokenizer=processor.feature_extractor,
-        compute_metrics=compute_metrics_arg,
         callbacks=callbacks,
     )
 
