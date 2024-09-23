@@ -1,24 +1,16 @@
 import json
 import logging
-
 from functools import partial
 from pathlib import Path
 
 from transformers import WhisperProcessor
 
 from whisper_medusa.dataset.dataset import (
-    DataCollatorSpeechSeq2SeqWithPadding,
-    get_dataset,
-)
+    DataCollatorSpeechSeq2SeqWithPadding, get_dataset)
 from whisper_medusa.models import get_model
-from whisper_medusa.utils import (
-    get_training_args,
-    MedusaTrainer,
-    parse_args,
-    set_logger,
-    set_seed,
-    count_parameters,
-)
+from whisper_medusa.utils import (MedusaTrainer, count_parameters,
+                                  get_training_args, parse_args, set_logger,
+                                  set_seed)
 
 
 def _train(args_i, training_args, callbacks=None):

@@ -1,10 +1,12 @@
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Union
+
 import pandas as pd
 import torch
 import torchaudio
 from transformers import WhisperProcessor
+
 from whisper_medusa.utils.utils import token_padding
 
 SAMPLE_RATE = 16_000

@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from typing import List
 
-from transformers import AutoConfig
-from transformers.models.whisper import WhisperConfig
 from transformers import AutoConfig, Seq2SeqTrainingArguments
+from transformers.models.whisper import WhisperConfig
 
 
 def remove_duplicates_config(config, kwargs):
