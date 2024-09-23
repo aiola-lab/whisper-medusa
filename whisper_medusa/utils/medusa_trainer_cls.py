@@ -70,11 +70,6 @@ class MedusaTrainer(Seq2SeqTrainer):
         with self.compute_loss_context_manager():
             loss, loss_per_head = self.compute_loss(model, inputs)
 
-        if self.args.n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu parallel training
-            # todo: make sure the mean is on the right axis
-            loss_per_head = loss_per_head.mean(0)
-
         self.log(
             {f"MedusaHead_{i}_loss": j.item() for i, j in enumerate(loss_per_head)},
         )

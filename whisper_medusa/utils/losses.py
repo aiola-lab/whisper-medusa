@@ -10,11 +10,30 @@ class MedusaCrossEntropyLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, labels: torch.Tensor):
         """
+        Forward pass for calculating the cross-entropy loss across multiple Medusa heads.
+
         Args:
-            logits: (num_heads, batch_size, seq_len, vocab_size)
-            labels: (batch_size, seq_len)
+            logits (torch.Tensor): A tensor of shape (num_heads, batch_size, seq_length, vocab_size)
+                representing the predicted logits from the model for each Medusa head.
+            labels (torch.Tensor): A tensor of shape (batch_size, seq_length) containing the true
+                labels for each input in the batch.
+
+        Returns:
+            torch.Tensor: A tensor containing the stacked cross-entropy losses for each head,
+            with one loss per Medusa head.
+
+        Process:
+            - If `self.loss_on_original` is True, the loss is calculated for the base head (original).
+            - If False, it starts from the Medusa heads without including the base head.
+            - For each Medusa head, the logits and labels are adjusted (shifted) to align the predictions
+            with the correct labels, given that each head predicts a different portion of the sequence.
+            - Loss is computed using cross-entropy (`self.ce`) for each head, and losses are appended to
+            a list, which is returned as a stacked tensor.
+
+        Special Cases:
+            - If the sequence length is smaller than the number of heads, the loop breaks to avoid NaN values.
+            - The logits and labels are reshaped to ensure compatibility with the cross-entropy calculation.
         """
-        # todo: add reduction option
         loss = []
         num_heads = logits.shape[0]
         if self.loss_on_original:
