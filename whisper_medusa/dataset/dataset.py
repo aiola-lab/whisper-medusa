@@ -25,8 +25,6 @@ class ASRDataSet(torch.utils.data.Dataset):
         split,
         processor: WhisperProcessor,
         target_sample=16_000,
-        debug_mode=False,
-        debug_examples=1000,
     ):
         assert split in [
             "train",
@@ -34,8 +32,6 @@ class ASRDataSet(torch.utils.data.Dataset):
             "test",
         ]  # sanity for case we will use split later.
         self.split = split
-        self.debug_mode = debug_mode
-        self.debug_examples = debug_examples
 
         # read csv file + create dataset
         self.data_path = data_path
@@ -52,12 +48,6 @@ class ASRDataSet(torch.utils.data.Dataset):
     def _init_dataset_obj(self):
         self.dataset_df = pd.read_csv(self.data_path)
         self.dataset_df.sentence = self.dataset_df.sentence.fillna("")
-
-
-        # in case of debug mode, sample only 1000 samples
-        if self.debug_mode and self.split in ["val", "test"]:
-            sample_size = min(self.debug_examples, len(self.dataset_df))
-            self.dataset_df = self.dataset_df.sample(n=sample_size)
         self.dataset = self.dataset_df.to_dict("records")
 
         # check case language is not specified
@@ -157,8 +147,6 @@ def get_dataset(args_i, processor):
         split="test",
         processor=processor,
         target_sample=SAMPLE_RATE,
-        debug_mode=args_i.debug_mode,
-        debug_examples=args_i.debug_examples,
     )
 
     dataset["validation"] = ASRDataSet(
@@ -166,8 +154,6 @@ def get_dataset(args_i, processor):
         split="val",
         processor=processor,
         target_sample=SAMPLE_RATE,
-        debug_mode=args_i.debug_mode,
-        debug_examples=args_i.debug_examples,
     )
 
     return dataset
