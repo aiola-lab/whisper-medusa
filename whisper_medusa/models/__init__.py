@@ -1,1 +1,1 @@
-from .model import WhisperMedusaModel
+from .model import WhisperMedusaModel, get_model
