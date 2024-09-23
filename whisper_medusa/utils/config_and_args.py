@@ -11,8 +11,9 @@ def remove_duplicates_config(config, kwargs):
     # Remove the keys from kwargs
     for key in keys_to_remove:
         del kwargs[key]
-    
+
     return kwargs
+
 
 @dataclass
 class MedusaConfig(WhisperConfig):
@@ -86,10 +87,10 @@ def get_training_args(arguments):
         greater_is_better=False,
         push_to_hub=False,
         remove_unused_columns=False,
-        dataloader_num_workers=4, 
+        dataloader_num_workers=4,
         optim=arguments.optim,
         label_names=["labels"],
         save_safetensors=arguments.save_safetensors,
-        lr_scheduler_type= arguments.lr_scheduler_type, 
+        lr_scheduler_type=arguments.lr_scheduler_type,
     )
     return training_args

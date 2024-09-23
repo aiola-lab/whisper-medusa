@@ -4,21 +4,24 @@ import logging
 from functools import partial
 from pathlib import Path
 
-from transformers import  WhisperProcessor
+from transformers import WhisperProcessor
 
 from whisper_medusa.dataset.dataset import (
-    DataCollatorSpeechSeq2SeqWithPadding, get_dataset)
+    DataCollatorSpeechSeq2SeqWithPadding,
+    get_dataset,
+)
 from whisper_medusa.models import get_model
 from whisper_medusa.utils.config_and_args import get_training_args
 from whisper_medusa.utils.medusa_trainer_cls import MedusaTrainer
 from whisper_medusa.utils.metrics import compute_metrics
-from whisper_medusa.utils.utils import (parse_args, set_logger, set_seed )
+from whisper_medusa.utils.utils import parse_args, set_logger, set_seed
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def _train(
-    args_i, training_args, callbacks=None):
+
+def _train(args_i, training_args, callbacks=None):
     set_seed(args_i.seed)
 
     model = get_model(args_i)
@@ -62,7 +65,6 @@ def _train(
     processor.tokenizer.save_pretrained(model_comp_path_str)
     processor.save_pretrained(model_comp_path_str)
 
-
     results = trainer.evaluate(eval_dataset=dataset_dict["test"])
 
     message = f"loss: {results['eval_loss']}"
@@ -72,7 +74,6 @@ def _train(
 
 
 def main(args_i, training_args):
-
     _train(args_i, training_args)
 
 

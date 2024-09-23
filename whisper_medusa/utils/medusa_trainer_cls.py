@@ -4,8 +4,7 @@ import torch
 from torch import nn
 from transformers import Seq2SeqTrainer, is_apex_available
 from transformers.modeling_utils import unwrap_model
-from transformers.models.auto.modeling_auto import \
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
+from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
 if is_apex_available():
     from apex import amp
@@ -67,7 +66,7 @@ class MedusaTrainer(Seq2SeqTrainer):
         """
         model.train()
         inputs = self._prepare_inputs(inputs)
-        
+
         with self.compute_loss_context_manager():
             loss, loss_per_head = self.compute_loss(model, inputs)
 

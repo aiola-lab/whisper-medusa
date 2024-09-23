@@ -49,8 +49,11 @@ def evaluate_model(args, device):
             ).input_features
             input_features = input_features.to(device)
 
-            if args.regulation_factor  != 1:
-                exponential_decay_length_penalty = (args.regulation_start, args.regulation_factor) 
+            if args.regulation_factor != 1:
+                exponential_decay_length_penalty = (
+                    args.regulation_start,
+                    args.regulation_factor,
+                )
             else:
                 exponential_decay_length_penalty = None
 
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         default=1,
         help="repetition penalty for exponential decay",
     )
-    
+
     args = parser.parse_args()
     set_logger()
     device = get_device()

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import wandb
 
+
 def set_logger():
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -75,6 +76,7 @@ def get_device(gpu_id="0"):
     else:
         logging.info("Using CPU")
         return torch.device("cpu")
+
 
 def token_padding(features, processor, batch_key, pad_token_id=-100):
     # get the tokenized label sequences
@@ -196,7 +198,7 @@ def parse_args():
         default="True",
         help="use fp16 training",
     )
-    
+
     parser.add_argument(
         "--lr",
         type=float,
@@ -331,7 +333,6 @@ def parse_args():
         help="The wandb id to resume from",
     )
 
-    
     args_ = parser.parse_args()
 
     if args_.wandb_logging:

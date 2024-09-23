@@ -53,7 +53,6 @@ class ASRDataSet(torch.utils.data.Dataset):
         self.dataset_df = pd.read_csv(self.data_path)
         self.dataset_df.sentence = self.dataset_df.sentence.fillna("")
 
-
         # in case of debug mode, sample only 1000 samples
         if self.debug_mode and self.split in ["val", "test"]:
             sample_size = min(self.debug_examples, len(self.dataset_df))
@@ -171,4 +170,3 @@ def get_dataset(args_i, processor):
     )
 
     return dataset
-
