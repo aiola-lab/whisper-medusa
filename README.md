@@ -1,6 +1,6 @@
 # Whisper in Medusa's Ear: Multi-head Efficient Decoding for Transformer-based ASR
 <p align="center">
-| <a href="https://medium.com/@sgl.yael/whisper-medusa-using-multiple-decoding-heads-to-achieve-1-5x-speedup-7344348ef89b"><b>Blog</b></a> | <a href="https://arxiv.org/abs/2409.15869"><b>Paper</b></a> |
+| <a href="https://medium.com/@sgl.yael/whisper-medusa-using-multiple-decoding-heads-to-achieve-1-5x-speedup-7344348ef89b" style="font-size: 20px;"><b>Blog</b></a> | <a href="https://arxiv.org/abs/2409.15869" style="font-size: 20px;"><b>Paper</b></a> |
 </p>
 <div style="text-align: center;">
     <img src="assets/whisper_medusa_libri_gen.gif"/>
@@ -48,20 +48,37 @@ The Whisper with the assistant model achieves the best speedup performance while
     <em>Whisper Medusa speedup compared to Whisper vanilla. </em>
 </p> -->
 ### Medusa-Linear
-<p float="center">
-  <img src="assets/whisper_medusa_head_clean_speed.png" width="250" />
-  <img src="assets/whisper_medusa_head_other_speed.png" width="250" /> 
+<div style="display: flex; flex-direction: column; align-items: center;">
+  <div style="display: flex; justify-content: center; align-items: center;">
+    <img src="assets/whisper_medusa_head_clean_speed.png" alt="Image 1" width="250"  style="margin-right: 10px;">
+  <img src="assets/whisper_medusa_head_other_speed.png" alt="Image 2" width="250"  style="margin-left: 10px;">
+  </div>
+  <p style="text-align: center;"><em>Medusa-Linear speedup compared to Whisper vanilla. Left - Librispeech clean. Right - Librispeech other.</em></p>
+</div>
 
-  <em>Medusa-Linear speedup compared to Whisper vanilla. Left- librispeech clean. Right-  librispeech other</em>
-</p>
+
 
 ### Medusa-Block
-<p float="center">
-  <img src="assets/whisper_medusa_block_clean_speed.png" width="250" />
-  <img src="assets/whisper_medusa_block_other_speed.png" width="250" /> 
 
-  <em>Medusa-Block speedup compared to Whisper vanilla. Left- librispeech clean. Right-  librispeech other</em>
-</p>
+[//]: # (<p float="center">)
+
+[//]: # (  <img src="assets/whisper_medusa_block_clean_speed.png" width="250" />)
+
+[//]: # (  <img src="assets/whisper_medusa_block_other_speed.png" width="250" /> )
+
+[//]: # ()
+[//]: # (  <em>Medusa-Block speedup compared to Whisper vanilla. Left- librispeech clean. Right-  librispeech other</em>)
+
+[//]: # (</p>)
+
+<div style="display: flex; flex-direction: column; align-items: center;">
+  <div style="display: flex; justify-content: center; align-items: center;">
+    <img src="assets/whisper_medusa_block_clean_speed.png" width="250" />
+    <img src="assets/whisper_medusa_block_other_speed.png" width="250" /> 
+  </div>
+  <p style="text-align: center;">  <em>Medusa-Block speedup compared to Whisper vanilla. Left- librispeech clean. Right-  librispeech other</em></p>
+</div>
+
 ---------
 
 ## Installation
