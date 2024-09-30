@@ -199,7 +199,16 @@ The command for running Medusa-Block should be similar to Medusa-Linear, with th
 --medusa-kl-loss=false \  # Disable KL divergence loss for Medusa
 ```
 
--------
+--------
+## Pretrained models
+The following models are available for download from the Hugging Face model hub:
+
+|            Model            |                             HF-link                              |
+|:---------------------------:|:----------------------------------------------------------------:|
+|      whisper-medusa-v1      |      [Link](https://huggingface.co/aiola/whisper-medusa-v1)      |
+| whisper-medusa-linear-libri | [Link](https://huggingface.co/aiola/whisper-medusa-linear-libri) |
+| whisper-medusa-block-libri  | [Link](https://huggingface.co/aiola/whisper-medusa-block-libri)  |
+
 --------
 ## Model evaluation
 To evaluate the model we assume a csv file with the following columns:
