@@ -106,7 +106,7 @@ import torchaudio
 from whisper_medusa import WhisperMedusaModel
 from transformers import WhisperProcessor
 
-model_name = "aiola/whisper-medusa-v1"
+model_name = "aiola/whisper-medusa-linear-libri"
 model = WhisperMedusaModel.from_pretrained(model_name)
 processor = WhisperProcessor.from_pretrained(model_name)
 
@@ -203,11 +203,11 @@ The command for running Medusa-Block should be similar to Medusa-Linear, with th
 ## Pretrained models
 The following models are available for download from the Hugging Face model hub:
 
-|            Model            |                             HF-link                              |
-|:---------------------------:|:----------------------------------------------------------------:|
-|      whisper-medusa-v1      |      [Link](https://huggingface.co/aiola/whisper-medusa-v1)      |
-| whisper-medusa-linear-libri | [Link](https://huggingface.co/aiola/whisper-medusa-linear-libri) |
-| whisper-medusa-block-libri  | [Link](https://huggingface.co/aiola/whisper-medusa-block-libri)  |
+|            Model            |                             HF-link                              |        Description          |   
+|:---------------------------:|:----------------------------------------------------------------:|:---------------------------:|
+|      whisper-medusa-v1      |      [Link](https://huggingface.co/aiola/whisper-medusa-v1)      |      Weights of the Medusa-Linear model trained without KL loss      |
+| whisper-medusa-linear-libri | [Link](https://huggingface.co/aiola/whisper-medusa-linear-libri) | Weights of the Medusa-Linear model trained with KL loss |
+| whisper-medusa-block-libri  | [Link](https://huggingface.co/aiola/whisper-medusa-block-libri)  | Weights of the Medusa-Block model trained without KL loss   |
 
 --------
 ## Model evaluation
