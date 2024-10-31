@@ -12,7 +12,7 @@ its large size and slow inference speed, various optimization strategies like
 Faster-Whisper and Speculative Decoding have been proposed to enhance performance. 
 We propose two types of Medusa architectures, Medusa-Linear and Medusa-Block, which build on Whisper by predicting multiple tokens per iteration.
 We evaluated the speed performance and accuracy of Medusa-Linear and Medusa-Block models on the Librispeech dataset which significantly improves speed with some degradation in WER. We train and 
-evaluate our model on the LibriSpeech dataset, demonstrating strong performance speed improvements.
+evaluate our model on various datasets, demonstrating strong performance speed improvements.
 
 
 <p align="center">
@@ -208,6 +208,7 @@ The following models are available for download from the Hugging Face model hub:
 |      whisper-medusa-v1      |      [Link](https://huggingface.co/aiola/whisper-medusa-v1)      |      Weights of the Medusa-Linear model trained without KL loss      |
 | whisper-medusa-linear-libri | [Link](https://huggingface.co/aiola/whisper-medusa-linear-libri) | Weights of the Medusa-Linear model trained with KL loss |
 | whisper-medusa-block-libri  | [Link](https://huggingface.co/aiola/whisper-medusa-block-libri)  | Weights of the Medusa-Block model trained without KL loss   |
+| whisper-medusa-multilingual | [Link](https://huggingface.co/aiola/whisper-medusa-multilingual) | Weights of the Medusa-Block model trained on Voxpopuli |
 
 --------
 ## Model evaluation
