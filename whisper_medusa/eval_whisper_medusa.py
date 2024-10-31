@@ -37,6 +37,7 @@ def evaluate_model(args, device):
 
     with torch.no_grad():
         for i, row in tqdm(data.iterrows(), total=len(data)):
+            lang = row.get("language", args.language)
             input_speech, sr = torchaudio.load(row.audio)
             if sr != SAMPLING_RATE:
                 input_speech = torchaudio.transforms.Resample(sr, SAMPLING_RATE)(
@@ -59,7 +60,7 @@ def evaluate_model(args, device):
 
             model_output = model.generate(
                 input_features,
-                language=args.language,
+                language=lang,
                 exponential_decay_length_penalty=exponential_decay_length_penalty,
             )
 
