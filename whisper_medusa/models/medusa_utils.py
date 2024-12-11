@@ -635,7 +635,7 @@ def update_inference_inputs(
     # Append the tokens from the best candidate to the input sequence
     next_tokens = candidates[None, best_candidate, : accept_length + 1]
     if use_base_logits:
-        additional_next_token = torch.argmax(logits[:, 0], dim=-1)
+        additional_next_token = torch.argmax(logits[None, best_candidate, 0], dim=-1)
         next_tokens = torch.cat(
             [next_tokens, additional_next_token.unsqueeze(0)], dim=-1
         )
