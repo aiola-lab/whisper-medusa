@@ -133,10 +133,8 @@ class MedusaTrainer(Seq2SeqTrainer):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
-            # Finally we need to normalize the loss for reporting
-            if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
-                loss = loss / self.args.gradient_accumulation_steps
 
+            loss = loss / self.args.gradient_accumulation_steps
             # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
             # https://github.com/huggingface/transformers/pull/35808
             if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
