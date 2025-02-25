@@ -53,8 +53,6 @@ def _train(args_i, training_args, callbacks=None):
     results = trainer.evaluate(eval_dataset=dataset_dict["test"])
 
     message = f"loss: {results['eval_loss']}"
-    if args_i.compute_wer:
-        message += f", WER: {results['eval_wer']}"
     logging.info(message)
 
 

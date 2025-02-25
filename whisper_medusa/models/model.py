@@ -792,7 +792,7 @@ class WhisperMedusaModel(PreTrainedModel):
 
         if streamer is not None:
             streamer.end()
-        print(f"accept_length_list: {accept_length_list}")
+
         # Set the last token to eos_token_id if it's not already assigned, ensuring that all Medusa heads' outputs are also set to eos_token_id
         new_input_ids = input_ids.clone()
         is_end_token = input_ids.tile(eos_token_id_tensor.shape[0], 1).eq(
@@ -1203,13 +1203,13 @@ class WhisperMedusaModel(PreTrainedModel):
         )
         hidden_states = whisper_model_outputs[0]
         if self.config.output_whisper_original:
-            orig_logits = self.output_whisper_original(
+            orig_logits = self._output_whisper_original(
                 whisper_model_outputs,
                 use_cache,
                 past_key_values,
                 head_mask,
                 attention_mask,
-                cross_attn_head_mask,
+                cross_attn_head_mask
             )
         medusa_logits = []
 
@@ -1903,7 +1903,7 @@ class WhisperMedusaModel(PreTrainedModel):
     def _set_output_whisper_original(self):
         self.whisper_model.config.output_hidden_states = True
         self.config.output_hidden_states = True
-        self.whisper_layer = WhisperDecoderLayer(self.whisper_model.config)
+        self.whisper_layer = WhisperDecoderLayer(self.whisper_model.config, layer_idx=len(self.whisper_model.model.decoder.layers)-1)
         self.whisper_layer.load_state_dict(
             self.whisper_model.model.decoder.layers[-1].state_dict()
         )  # load the last layer of the whisper model
@@ -1920,8 +1920,23 @@ class WhisperMedusaModel(PreTrainedModel):
         attention_mask: Optional[torch.LongTensor] = None,
         cross_attn_head_mask: Optional[torch.Tensor] = None,
     ):
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        past_key_value = past_key_values[-2] if past_key_values is not None else None
+        current_past_key_values = whisper_model_outputs.past_key_values
+        use_cache = (
+            use_cache if use_cache is not None else self.config.use_cache
+        )
+        if use_cache or current_past_key_values is not None:
+            if isinstance(current_past_key_values, Cache) and not isinstance(current_past_key_values, EncoderDecoderCache):
+                past_key_value = EncoderDecoderCache(current_past_key_values, DynamicCache())
+            elif not isinstance(current_past_key_values, EncoderDecoderCache):
+                logger.warning_once(
+                    "Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.43.0. "
+                    "You should pass an instance of `EncoderDecoderCache` instead, e.g. "
+                    "`past_key_values=EncoderDecoderCache.from_legacy_cache(past_key_values)`."
+                )
+                past_key_value = EncoderDecoderCache.from_legacy_cache(current_past_key_values)
+            past_key_value = past_key_value.to_legacy_cache()[:-1] # last layer
+            past_key_value = EncoderDecoderCache.from_legacy_cache(past_key_value)
+
         orig_hidden_state = self.whisper_layer(
             whisper_model_outputs.decoder_hidden_states[-2],
             attention_mask=attention_mask,
