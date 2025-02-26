@@ -6,27 +6,33 @@ from transformers import Seq2SeqTrainer, is_apex_available
 from transformers.modeling_utils import unwrap_model
 from transformers.models.auto.modeling_auto import \
     MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
-from transformers.utils import is_torch_xpu_available, is_torch_mlu_available, is_torch_musa_available, is_torch_npu_available, is_torch_mps_available,is_accelerate_available
-from transformers.training_args import OptimizerNames
 from transformers.trainer import _is_peft_model
+from transformers.training_args import OptimizerNames
+from transformers.utils import (is_accelerate_available,
+                                is_torch_mlu_available, is_torch_mps_available,
+                                is_torch_musa_available,
+                                is_torch_npu_available, is_torch_xpu_available)
+
 if is_apex_available():
     from apex import amp
 
 
-
 if is_accelerate_available():
-    from accelerate.utils import (
-        DistributedType,
-    )
+    from accelerate.utils import DistributedType
+
 
 class MedusaTrainer(Seq2SeqTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
 
         Subclass and override for custom behavior.
         """
-        if (self.label_smoother is not None or self.compute_loss_func is not None) and "labels" in inputs:
+        if (
+            self.label_smoother is not None or self.compute_loss_func is not None
+        ) and "labels" in inputs:
             labels = inputs.pop("labels")
         else:
             labels = None
@@ -48,7 +54,9 @@ class MedusaTrainer(Seq2SeqTrainer):
                 model_name = unwrapped_model._get_name()
             # User-defined compute_loss function
             if self.compute_loss_func is not None:
-                loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
+                loss = self.compute_loss_func(
+                    outputs, labels, num_items_in_batch=num_items_in_batch
+                )
             elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
                 loss = self.label_smoother(outputs, labels, shift_labels=True)
             else:
@@ -72,7 +80,10 @@ class MedusaTrainer(Seq2SeqTrainer):
         return (loss, outputs) if return_outputs else (loss, loss_per_head)
 
     def training_step(
-        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+        self,
+        model: nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        num_items_in_batch=None,
     ) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
@@ -97,7 +108,9 @@ class MedusaTrainer(Seq2SeqTrainer):
         inputs = self._prepare_inputs(inputs)
 
         with self.compute_loss_context_manager():
-            loss, loss_per_head = self.compute_loss(model, inputs,num_items_in_batch=num_items_in_batch)
+            loss, loss_per_head = self.compute_loss(
+                model, inputs, num_items_in_batch=num_items_in_batch
+            )
 
         self.log(
             {f"MedusaHead_{i}_loss": j.item() for i, j in enumerate(loss_per_head)},
