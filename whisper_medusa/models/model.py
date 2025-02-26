@@ -1417,17 +1417,7 @@ class WhisperMedusaModel(PreTrainedModel):
             is_shortform=is_shortform,
             generation_config=generation_config,
         )
-        # if isinstance(language, list):
-        #     if is_multilingual is None:
-        #         is_multilingual = False
-        #     if len(set(language)) != 1:
-        #         language = None
-        #         is_multilingual = True or is_multilingual
-        #     else:
-        #         language = language[0]
-        #         is_multilingual = False or is_multilingual
 
-        # is_multilingual = True
         self.whisper_model._set_language_and_task(
             language=language,
             task=task,
