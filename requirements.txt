@@ -4,4 +4,4 @@ pandas==2.2.2
 soundfile==0.12.1
 torch==2.2.2
 torchaudio==2.2.2
-transformers==4.39.0
+transformers==4.49.0
